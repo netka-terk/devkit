@@ -238,6 +238,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200 if ok else 400,
                                   {"ok": ok, "output": msg} if ok else {"error": msg})
 
+        if path.startswith("/api/adopt/"):
+            name = self.stack_from(path, "/api/adopt/")
+            if not name:
+                return
+            return self.send_json(*adopt_ports(name))
+
         if path.startswith("/api/kill/"):
             port = path[len("/api/kill/"):]
             if not port.isdigit() or not (1 <= int(port) <= 65535):
@@ -276,6 +282,31 @@ def read_stack(name):
         return {"error": "nk show คืน JSON ไม่ถูกต้อง"}
     data["editable"] = (USER_STACKS / f"{name}.sh").exists()
     return data
+
+
+def adopt_ports(name):
+    """Merge the ports a running stack was seen listening on into NK_PORTS.
+
+    Goes through write_stack, so a shipped stack gets a user override rather
+    than an edit to a file under git.
+    """
+    spec = read_stack(name)
+    if spec.get("error"):
+        return 400, {"error": spec["error"]}
+    rc, out, err = run_nk(["ports", name], timeout=20)
+    if rc != 0:
+        return 400, {"error": err.strip() or "ตรวจ port ไม่ได้ — stack ต้องรันอยู่"}
+    found = [line.split()[0] for line in out.splitlines() if line[:1].isdigit()]
+    declared = spec.get("ports", "").split()
+    merged = declared + [pt for pt in found if pt not in declared]
+    if merged == declared:
+        return 200, {"ok": True, "output": "ไม่มี port ใหม่ให้จำ"}
+    spec["ports"] = " ".join(merged)
+    ok, msg = write_stack(spec)
+    if not ok:
+        return 400, {"error": msg}
+    return 200, {"ok": True, "output": f"จำ port {' '.join(pt for pt in found if pt not in declared)} ไว้แล้ว — รอบหน้าจะเคลียร์ให้ก่อนรัน",
+                 "ports": spec["ports"]}
 
 
 def browse(path):

@@ -15,6 +15,7 @@ removes the `make run` → error → `lsof -i :PORT` → `kill -9` → `make run
     nk logs corr 100
     nk down all
     nk kill 3000           # free a port without touching a stack
+    nk ports grafana       # what the running stack actually listens on
 
     nk init                # scaffold .nk/<name>.sh for the current project
     nk list                # stacks visible from here, and where each came from
@@ -34,6 +35,10 @@ removes the `make run` → error → `lsof -i :PORT` → `kill -9` → `make run
   `~/.config/nk/stacks/`, which outranks `devkit/stacks`, so editing a shipped
   stack writes a user override instead of rewriting a file under git.
 - **Run it**: up, restart, down, and freeing an individual port, over live status.
+- **Port discovery**: while a stack runs, nk walks the process tree under each
+  tmux pane and asks `lsof` what it listens on. Ports that `NK_PORTS` omits show
+  up tagged "เจอตอนรัน" with a one-click "จำไว้" that saves them, so the next
+  `nk up` frees them first. `nk ports <stack>` and `nk status` show the same.
 - **Live terminal**: `nk up` points `tmux pipe-pane` at a file per pane, and the
   page streams those over SSE with ANSI colour, one tab per pane. Output is not
   polled.

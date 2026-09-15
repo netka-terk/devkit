@@ -7,7 +7,8 @@ import { JSDOM } from 'jsdom';
 const html = fs.readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
 const stacks = [
   { name: 'alpha', origin: 'user', dir: '/home/u/a', url: 'http://x', note: 'n',
-    running: true, hasToken: false, ports: [{ port: 3000, holder: 'node', pid: 42 }] },
+    running: true, hasToken: false, ports: [{ port: 3000, holder: 'node', pid: 42 }],
+    detected: [{ port: 3000, pid: 42, holder: 'node' }, { port: 9229, pid: 42, holder: 'node' }] },
   { name: 'beta', origin: 'shared', dir: '/home/u/b', url: '', note: '',
     running: false, hasToken: false, ports: [{ port: 3080, holder: 'stray', pid: 99 }] },
 ];
@@ -45,6 +46,9 @@ check('sidebar มี 2 stack', d.querySelectorAll('[data-select]').length === 2
 check('เลือกตัวแรกให้เองและเปิด terminal stream', has('SSE /api/stream/alpha'));
 check('หัวเรื่องเป็นชื่อ stack', d.querySelector('#main h1')?.textContent.includes('alpha'));
 check('stack ที่รันอยู่มีปุ่ม รีสตาร์ท/หยุด', !!d.querySelector('[data-act="restart"]') && !!d.querySelector('[data-act="down"]'));
+check('port ที่เจอตอนรันแต่ไม่ได้ประกาศ แสดงพร้อม tag', d.querySelector('#main').textContent.includes(':9229') && !!d.querySelector('.tag.auto'));
+calls.length = 0; click(d.querySelector('[data-adopt]')); await sleep(80);
+check('จำ port ที่เจอ → POST /api/adopt/alpha', has('POST /api/adopt/alpha'), calls.join(', '));
 
 calls.length = 0; click(d.querySelector('[data-act="restart"]')); await sleep(80);
 check('รีสตาร์ท → POST /api/restart/alpha', has('POST /api/restart/alpha'), calls.join(', '));

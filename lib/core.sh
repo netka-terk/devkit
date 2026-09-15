@@ -204,6 +204,35 @@ nk_port_conflicts() {
   done
 }
 
+# --------------------------------------------------------- port discovery ----
+
+# nk_tree_pids <pid> — the pid and every descendant, one per line.
+nk_tree_pids() {
+  local c
+  printf '%s\n' "$1"
+  for c in $(pgrep -P "$1" 2>/dev/null); do nk_tree_pids "$c"; done
+}
+
+# nk_detected <stack> — "port pid name" for every TCP listener owned by a
+# process running inside the stack's tmux panes. This is what the stack is
+# actually using, as opposed to what NK_PORTS says it should.
+nk_detected() {
+  nk_running "$1" || return 0
+  command -v lsof >/dev/null || return 0
+  local sess pids csv p
+  sess=$(nk_session "$1")
+  pids=$(for p in $(tmux list-panes -t "=$sess" -F '#{pane_pid}' 2>/dev/null); do
+           nk_tree_pids "$p"; done | sort -un)
+  [ -n "$pids" ] || return 0
+  csv=$(printf '%s\n' $pids | paste -sd, -)
+  lsof -nP -iTCP -sTCP:LISTEN -a -p "$csv" -Fpcn 2>/dev/null | awk '
+    /^p/ { pid = substr($0, 2) }
+    /^c/ { name = substr($0, 2) }
+    /^n/ { n = substr($0, 2); sub(/.*:/, "", n)
+           if (n ~ /^[0-9]+$/ && !(n in seen)) { seen[n] = 1; print n, pid, name } }' |
+    sort -n
+}
+
 # ------------------------------------------------------------------- tmux ----
 
 nk_running()      { tmux has-session -t "=$(nk_session "$1")" 2>/dev/null; }

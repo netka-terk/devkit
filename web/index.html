@@ -148,6 +148,7 @@
     color: var(--muted); border: 1px solid var(--line); text-transform: uppercase; letter-spacing: .05em;
     font-weight: 500;
   }
+  .tag.auto { color: var(--accent); background: var(--accent-soft); border-color: transparent; margin-left: 6px; vertical-align: 1px; }
   .d-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
@@ -408,8 +409,9 @@ function render() {
 
   $('#list').innerHTML = stacks.map((s) => {
     const heldPorts = s.ports.filter((p) => p.pid != null);
-    const pt = s.ports.length
-      ? `<span class="pt ${heldPorts.length && !s.running ? 'held' : ''}">${esc(s.ports.map((p) => p.port).join(' '))}</span>`
+    const all = [...new Set([...s.ports.map((p) => p.port), ...(s.detected || []).map((p) => p.port)])];
+    const pt = all.length
+      ? `<span class="pt ${heldPorts.length && !s.running ? 'held' : ''}">${esc(all.join(' '))}</span>`
       : '';
     return `<button class="item ${s.name === selected ? 'on' : ''}" data-select="${esc(s.name)}">
       <span class="dot ${s.running ? 'on' : ''}"></span>
@@ -456,7 +458,22 @@ function renderDetail() {
       ? `<div class="a"><button class="btn sm danger" data-kill="${p.port}" ${isBusy ? 'disabled' : ''}>เคลียร์</button></div>`
       : `<div class="a"></div>`;
     return `<div class="k num">:${p.port}</div>${v}${a}`;
-  }).join('') : `<div class="empty">ไม่ได้ประกาศ port — จะไม่มีการเคลียร์อะไรก่อนรัน</div>`;
+  }).join('') : '';
+
+  // Ports the running processes actually listen on that NK_PORTS omits.
+  const declared = new Set(s.ports.map((p) => p.port));
+  const extra = (s.detected || []).filter((p) => !declared.has(p.port));
+  const detectedRows = extra.map((p) =>
+    `<div class="k num">:${p.port}</div>
+     <div class="v">${esc(p.holder)} <span class="num">· pid ${p.pid}</span> <span class="tag auto">เจอตอนรัน</span></div>
+     <div class="a"></div>`
+  ).join('');
+  const portsEmpty = !s.ports.length && !extra.length
+    ? `<div class="empty">${s.running ? 'ยังไม่พบ TCP listener ใน pane — ถ้า service เพิ่ง start รอสักครู่' : 'ไม่ได้ประกาศ port — จะรู้ตอนรันว่าใช้ port ไหน'}</div>`
+    : '';
+  const adoptBtn = extra.length
+    ? `<button class="btn sm" data-adopt ${isBusy ? 'disabled' : ''} title="บันทึก port ที่เจอลง stack — รอบหน้าจะเคลียร์ให้ก่อนรัน">จำ ${extra.length} port ที่เจอ</button>`
+    : '';
 
   const panes = (s.panes || []).map((p) =>
     `<div class="k">${esc(p.label)}</div><div class="v">${esc(p.cmd)}</div><div class="a"></div>`
@@ -480,8 +497,8 @@ function renderDetail() {
 
       <div class="grid">
         <div class="panel">
-          <div class="p-head">Ports</div>
-          <div class="kv">${ports}</div>
+          <div class="p-head">Ports ${adoptBtn}</div>
+          <div class="kv">${ports}${detectedRows}${portsEmpty}</div>
         </div>
         <div class="panel">
           <div class="p-head">Panes <span class="num" style="font-weight:500">${(s.panes || []).length}</span></div>
@@ -553,6 +570,17 @@ async function act(name, verb) {
     busy.delete(name);
     await refresh();
   }
+}
+
+async function adoptPorts(name) {
+  busy.add(name); render();
+  try {
+    const r = await api(`/api/adopt/${encodeURIComponent(name)}`, 'POST');
+    toast(r.output, { kind: 'good', cli: `nk ports ${name}` });
+    const s = stacks.find((x) => x.name === name); if (s) s.panes = undefined;
+  } catch (e) {
+    toast('จำ port ไม่ได้', { detail: e.message, kind: 'bad' });
+  } finally { busy.delete(name); await refresh(); }
 }
 
 async function killPort(port) {
@@ -766,6 +794,7 @@ document.addEventListener('click', (ev) => {
 
   const kill = ev.target.closest('[data-kill]');
   if (kill) return killPort(kill.dataset.kill);
+  if (ev.target.closest('[data-adopt]') && selected) return adoptPorts(selected);
 
   const btn = ev.target.closest('[data-act]');
   if (!btn || !selected) return;

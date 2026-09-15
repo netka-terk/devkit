@@ -153,13 +153,20 @@ cmd_status_json() {
           fi
           sep=,
         done
-        printf '{"name":%s,"origin":%s,"dir":%s,"url":%s,"note":%s,"running":%s,"hasToken":%s,"ports":[%s]}\n' \
+        local detected= dport dpid dname
+        sep=
+        while read -r dport dpid dname; do
+          [ -n "$dport" ] || continue
+          detected+="$sep{\"port\":$dport,\"pid\":$dpid,\"holder\":$(nk_json_str "$dname")}"
+          sep=,
+        done < <(nk_detected "$name")
+        printf '{"name":%s,"origin":%s,"dir":%s,"url":%s,"note":%s,"running":%s,"hasToken":%s,"ports":[%s],"detected":[%s]}\n' \
           "$(nk_json_str "$NK_NAME")" "$(nk_json_str "$origin")" \
           "$(nk_json_str "$NK_DIR")" "$(nk_json_str "$NK_URL")" \
           "$(nk_json_str "$NK_NOTE")" \
           "$(nk_running "$name" && echo true || echo false)" \
           "$([ -n "$NK_TOKEN_CMD" ] && echo true || echo false)" \
-          "$ports" )
+          "$ports" "$detected" )
     done | paste -sd, -
   )
   printf '[%s]\n' "$objs"
@@ -211,8 +218,32 @@ cmd_status() {
         echo
         first=0
       done
+      # Ports the running processes actually listen on but NK_PORTS omits.
+      local dport dpid dname declared=" $NK_PORTS "
+      while read -r dport dpid dname; do
+        [ -n "$dport" ] || continue
+        case "$declared" in *" $dport "*) continue ;; esac
+        if [ "$first" = 1 ]; then cell 11 "$name"; cell 9 "$sess_text" "$sess_color"; first=0
+        else cell 11 ''; cell 9 ''; fi
+        cell 7 "$dport"
+        cell 27 "$dname (pid $dpid)"
+        printf '%sเจอตอนรัน — ยังไม่อยู่ใน NK_PORTS%s\n' "$C_YEL" "$C_0"
+      done < <(nk_detected "$name")
     )
   done
+}
+
+# cmd_ports <stack> — ports the running stack is actually listening on.
+cmd_ports() {
+  [ $# -ge 1 ] || die "ใช้: nk ports <stack>"
+  nk_load "$1"
+  nk_running "$1" || die "$1 ไม่ได้รันอยู่ — ตรวจได้เฉพาะตอนรัน"
+  local dport dpid dname n=0
+  while read -r dport dpid dname; do
+    [ -n "$dport" ] || continue
+    printf '%-6s %s (pid %s)\n' "$dport" "$dname" "$dpid"; n=$((n+1))
+  done < <(nk_detected "$1")
+  [ "$n" -gt 0 ] || dim "    ไม่พบ TCP listener ใน pane ของ $1"
 }
 
 # ================================================= attach / logs / kill ======
@@ -432,6 +463,7 @@ ${C_B}nk${C_0} — dev stack runner (ใช้ได้กับทุกโป�
   ${C_B}nk attach <stack>${C_0}      เข้า tmux session
   ${C_B}nk logs <stack> [n]${C_0}    ดึง log ล่าสุดจากทุก pane (default 200 บรรทัด)
   ${C_B}nk kill <port>...${C_0}      เคลียร์ port ตรงๆ
+  ${C_B}nk ports <stack>${C_0}       port ที่ stack ที่รันอยู่ listen จริง (ตรวจจาก process ใน pane)
   ${C_B}nk list [-n]${C_0}           stack ที่มองเห็นจากที่นี่
   ${C_B}nk init [name]${C_0}         สร้าง .nk/<name>.sh ให้โปรเจคปัจจุบัน
   ${C_B}nk web [port]${C_0}          เปิดหน้าเว็บที่ 127.0.0.1:7777 (default)
@@ -470,6 +502,7 @@ case ${1:-help} in
   web)      shift; cmd_web "$@" ;;
   logdir)   printf '%s\n' "$NK_CACHE/logs" ;;
   show)     shift; cmd_show "$@" ;;
+  ports)    shift; cmd_ports "$@" ;;
   help|-h|--help) cmd_help ;;
   *) die "ไม่รู้จักคำสั่ง '$1' (ดู: nk help)" ;;
 esac
