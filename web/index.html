@@ -331,8 +331,12 @@ async function act(name, verb) {
   }
 }
 
+function rowOf(name) {
+  return [...document.querySelectorAll('.row')].find((r) => r.dataset.stack === name);
+}
+
 function render_busy(name, on) {
-  const row = document.querySelector(`.row[data-stack="${CSS.escape(name)}"]`);
+  const row = rowOf(name);
   if (row) row.classList.toggle('busy', on);
 }
 
@@ -563,6 +567,31 @@ async function editStack(name) {
     toast(e.message, true);
   }
 }
+
+// --- wiring --------------------------------------------------------------
+// Delegated, because the stack rows are re-rendered on every refresh.
+document.addEventListener('click', async (ev) => {
+  const killBtn = ev.target.closest('[data-kill]');
+  if (killBtn) {
+    const port = killBtn.dataset.kill;
+    try {
+      const r = await api(`/api/kill/${port}`, 'POST');
+      toast(r.output || `เคลียร์ port ${port} แล้ว`, !r.ok);
+    } catch (e) { toast(e.message, true); }
+    return refresh();
+  }
+
+  const btn = ev.target.closest('[data-act]');
+  if (!btn) return;
+  const name = btn.closest('.row').dataset.stack;
+  const verb = btn.dataset.act;
+  if (verb === 'logs') return openTerm(name);
+  if (verb === 'edit') return editStack(name);
+  if (verb === 'down' && !confirm(`ปิด ${name} ?`)) return;
+  act(name, verb);
+});
+
+$('#refresh').onclick = refresh;
 
 // Status still polls; the terminal streams on its own.
 setInterval(() => {

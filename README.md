@@ -95,6 +95,15 @@ Then commit `.nk/` — everyone on the repo gets the same `nk up`.
 `grafana` and `glx` both bind 3000, so `nk up` stops one before starting the
 other instead of leaving a port conflict behind.
 
+## Testing the page
+
+`web/index.html` has no build step, so a syntax check proves nothing about
+whether the buttons are wired. `test/dom.mjs` loads the real page in jsdom,
+clicks the real buttons, and asserts the request each click should make:
+
+    npm install jsdom@24        # once, anywhere on the path
+    node test/dom.mjs
+
 ## Install
 
     ./install.sh && exec bash
