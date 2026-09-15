@@ -76,8 +76,12 @@ definition:
 A stack in `<project>/.nk/` defaults `NK_DIR` to the project root, so the file
 works on any machine and any checkout path.
 
-`nk` finds the project root by walking up for a `.nk/` directory, then for
-`.git`.
+`nk` finds the current project root by walking up for a `.nk/` directory, then
+for `.git`. Other projects' `.nk/` directories are found through the registry
+in `~/.config/nk/projects` (`nk project list|add|rm`), so the console shows
+every project's stacks no matter where it was started. `nk init` registers the
+project it runs in; the console's **ย้ายไป project** button moves a user stack
+into `<its dir>/.nk/`, registers that project, and removes the user copy.
 
 ## Using it on another project
 

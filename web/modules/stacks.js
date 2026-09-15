@@ -25,7 +25,7 @@
           <div class="field">
             <label for="f-name">ชื่อ</label>
             <input type="text" id="f-name" class="in mono" placeholder="my-api" autocomplete="off" spellcheck="false">
-            <div class="hint">ใช้เรียกใน <code>nk up &lt;ชื่อ&gt;</code> — a-z, 0-9, _ และ -</div>
+            <div class="hint">ใช้เรียกใน <code>nk up &lt;ชื่อ&gt;</code> — a-z, 0-9, _ และ - · บันทึกไว้ที่ <code>~/.config/nk/stacks/</code> (user) แล้วกด "ย้ายไป project" ได้ทีหลัง</div>
           </div>
           <div class="field">
             <label for="f-dir">โฟลเดอร์ที่จะรัน</label>
@@ -57,6 +57,7 @@
         </div>
         <div class="dlg-foot">
           <button type="button" class="btn danger" id="f-delete" hidden>ลบ stack</button>
+          <button type="button" class="btn" id="f-promote" hidden title="ย้ายไฟล์นิยามไปไว้ใน <โฟลเดอร์>/.nk/ เพื่อ commit ไปกับ repo">ย้ายไป project</button>
           <span class="grow"></span>
           <button type="button" class="btn" id="f-cancel">ยกเลิก</button>
           <button type="button" class="btn primary" id="f-save">บันทึก</button>
@@ -398,6 +399,7 @@
     $('#f-url').value = stack ? (stack.url || '') : '';
     $('#f-env').value = stack ? (stack.envFile || '') : '';
     $('#f-delete').hidden = !(stack && stack.editable);
+    $('#f-promote').hidden = !(stack && stack.origin && stack.origin !== 'project');
     $('#browser').hidden = true;
     const host = $('#f-cmds'); host.innerHTML = '';
     const rows = stack?.panes?.length ? stack.panes : [{ label: 'app', cmd: '' }];
@@ -456,6 +458,14 @@
         selected = spec.name;
         await refresh();
       } catch (e) { toast('บันทึกไม่ได้', { detail: e.message, kind: 'bad' }); }
+    };
+    $('#f-promote').onclick = async () => {
+      if (!editing) return;
+      try {
+        const r = await api(`/api/promote/${encodeURIComponent(editing)}`, 'POST');
+        toast(r.output, { kind: 'good', cli: `nk project add ${$('#f-dir').value}` });
+        dlg.close(); await refresh();
+      } catch (e) { toast('ย้ายไม่ได้', { detail: e.message, kind: 'bad' }); }
     };
     $('#f-delete').onclick = async () => {
       if (!editing || !confirm(`ลบ stack ${editing}? ไฟล์นิยามจะถูกลบ (โค้ดในโฟลเดอร์ไม่ถูกแตะ)`)) return;

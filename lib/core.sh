@@ -47,12 +47,39 @@ nk_project_root() {
   printf '%s' "$start"
 }
 
-# nk_search_dirs — stack directories in priority order.
+# Registered projects: one root per line. Their .nk/ directories are searched
+# from anywhere, so the console shows every project's stacks no matter where
+# it was started. `nk init` and the console's "ย้ายไป project" register a root.
+NK_PROJECTS_FILE="$NK_HOME/projects"
+
+nk_projects() { [ -f "$NK_PROJECTS_FILE" ] && awk 'NF && !seen[$0]++' "$NK_PROJECTS_FILE"; return 0; }
+
+nk_project_add() {
+  local d; d=$(cd "$1" 2>/dev/null && pwd) || return 1
+  mkdir -p "$NK_HOME"
+  nk_projects | awk -v d="$d" '$0 == d { f = 1 } END { exit !f }' && return 0
+  printf '%s\n' "$d" >> "$NK_PROJECTS_FILE"
+}
+
+nk_project_rm() {
+  [ -f "$NK_PROJECTS_FILE" ] || return 0
+  local d; d=$(cd "$1" 2>/dev/null && pwd) || d=$1
+  awk -v d="$d" '$0 != d' "$NK_PROJECTS_FILE" > "$NK_PROJECTS_FILE.tmp" &&
+    mv "$NK_PROJECTS_FILE.tmp" "$NK_PROJECTS_FILE"
+}
+
+# nk_search_dirs — stack directories in priority order: the project we are in,
+# every registered project, the user's own, then the shared defaults.
 nk_search_dirs() {
-  local proj; proj=$(nk_project_root)
-  [ -d "$proj/$NK_PROJECT_DIRNAME" ] && printf '%s\n' "$proj/$NK_PROJECT_DIRNAME"
-  [ -d "$NK_HOME/stacks" ]           && printf '%s\n' "$NK_HOME/stacks"
-  [ -d "$NK_ROOT/stacks" ]           && printf '%s\n' "$NK_ROOT/stacks"
+  local proj d; proj=$(nk_project_root)
+  {
+    [ -d "$proj/$NK_PROJECT_DIRNAME" ] && printf '%s\n' "$proj/$NK_PROJECT_DIRNAME"
+    while read -r d; do
+      [ -n "$d" ] && [ -d "$d/$NK_PROJECT_DIRNAME" ] && printf '%s\n' "$d/$NK_PROJECT_DIRNAME"
+    done < <(nk_projects)
+    [ -d "$NK_HOME/stacks" ] && printf '%s\n' "$NK_HOME/stacks"
+    [ -d "$NK_ROOT/stacks" ] && printf '%s\n' "$NK_ROOT/stacks"
+  } | awk '!seen[$0]++'
   return 0
 }
 

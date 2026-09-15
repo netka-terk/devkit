@@ -16,7 +16,7 @@ const stacks = [
     running: false, hasToken: false, ports: [{ port: 3080, holder: 'stray', pid: 99 }] },
 ];
 const detail = (n) => ({ name: n, dir: `/home/u/${n[0]}`, ports: '3000', url: 'http://x', note: '',
-  envFile: '', panes: [{ label: 'app', cmd: 'make run' }], editable: true });
+  envFile: '', panes: [{ label: 'app', cmd: 'make run' }], editable: true, origin: n === 'alpha' ? 'project' : 'user' });
 
 const calls = [];
 const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://localhost/',
@@ -92,7 +92,15 @@ check('เคลียร์ → POST /api/kill/3080', has('POST /api/kill/3080'
 
 calls.length = 0; click(d.querySelector('[data-act="edit"]')); await sleep(120);
 check('แก้ไข เปิด dialog พร้อมค่าเดิม', d.querySelector('#editor').open && d.querySelector('#f-dir').value === '/home/u/b', `dir="${d.querySelector('#f-dir').value}"`);
+check('stack แบบ user มีปุ่ม ย้ายไป project', !d.querySelector('#f-promote').hidden);
+calls.length = 0; click(d.querySelector('#f-promote')); await sleep(80);
+check('ย้ายไป project → POST /api/promote/beta', has('POST /api/promote/beta'), calls.join(', '));
+await sleep(120);
+click(d.querySelector('[data-select="alpha"]')); await sleep(120);
+click(d.querySelector('[data-act="edit"]')); await sleep(120);
+check('stack ที่เป็น project อยู่แล้ว ไม่มีปุ่มย้าย', d.querySelector('#f-promote').hidden);
 click(d.querySelector('#f-cancel'));
+click(d.querySelector('[data-select="beta"]')); await sleep(120);
 
 click(d.querySelector('#new')); await sleep(50);
 check('stack ใหม่ เปิดฟอร์มว่าง', d.querySelector('#editor').open && d.querySelector('#f-name').value === '');

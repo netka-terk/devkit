@@ -38,8 +38,13 @@ def sh_quote(v):
     return "'" + str(v).replace("'", "'\\''") + "'"
 
 
-def write_stack(spec):
-    """Write <name>.sh from a UI spec. Returns (ok, message)."""
+def write_stack(spec, target=None, omit_dir=False):
+    """Write a stack file from a UI spec. Returns (ok, message).
+
+    Default target is the user directory. A project stack passes its own
+    <root>/.nk/<name>.sh and omit_dir=True, since NK_DIR defaults to the
+    project root there and an absolute path would tie the file to this box.
+    """
     name = spec.get("name", "")
     if not STACK_RE.match(name):
         return False, "ชื่อ stack ใช้ได้เฉพาะ a-z A-Z 0-9 _ - (ไม่เกิน 64 ตัว)"
@@ -70,9 +75,10 @@ def write_stack(spec):
         if not pt.isdigit() or not (1 <= int(pt) <= 65535):
             return False, f"port ไม่ถูกต้อง: {pt}"
 
-    body = [
-        f"# {name} — สร้างจากหน้าเว็บ nk ({time.strftime('%Y-%m-%d %H:%M')})",
-        f"NK_DIR={sh_quote(d)}",
+    body = [f"# {name} — สร้างจาก D3v ({time.strftime('%Y-%m-%d %H:%M')})"]
+    if not omit_dir:
+        body.append(f"NK_DIR={sh_quote(d)}")
+    body += [
         f"NK_PORTS={sh_quote(' '.join(ports))}",
         f"NK_URL={sh_quote(str(spec.get('url', '')).strip())}",
         f"NK_NOTE={sh_quote(str(spec.get('note', '')).strip())}",
@@ -84,9 +90,10 @@ def write_stack(spec):
     body.extend(rows)
     body.append(")")
 
-    USER_STACKS.mkdir(parents=True, exist_ok=True)
-    (USER_STACKS / f"{name}.sh").write_text("\n".join(body) + "\n")
-    return True, f"บันทึก {USER_STACKS / (name + '.sh')} แล้ว"
+    out = Path(target) if target else USER_STACKS / f"{name}.sh"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("\n".join(body) + "\n")
+    return True, f"บันทึก {out} แล้ว"
 
 # Strip the CLI's ANSI colouring; the browser renders its own.
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -246,6 +253,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200 if ok else 400,
                                   {"ok": ok, "output": msg} if ok else {"error": msg})
 
+        if path.startswith("/api/promote/"):
+            name = self.stack_from(path, "/api/promote/")
+            if not name:
+                return
+            return self.send_json(*promote(name))
+
         if path.startswith("/api/adopt/"):
             name = self.stack_from(path, "/api/adopt/")
             if not name:
@@ -292,6 +305,37 @@ def read_stack(name):
         return {"error": "nk show คืน JSON ไม่ถูกต้อง"}
     data["editable"] = (USER_STACKS / f"{name}.sh").exists()
     return data
+
+
+def promote(name):
+    """Move a stack's definition into <its dir>/.nk so it travels with the repo.
+
+    Writes the project file, registers the project so it is visible from
+    anywhere, and removes the user copy that would otherwise shadow it. A
+    shared (devkit) file is left alone — the project file outranks it.
+    """
+    spec = read_stack(name)
+    if spec.get("error"):
+        return 400, {"error": spec["error"]}
+    if spec.get("origin") == "project":
+        return 200, {"ok": True, "output": f"{name} เป็น project อยู่แล้ว ({spec['file']})"}
+    root = Path(spec["dir"])
+    if not root.is_dir():
+        return 400, {"error": f"ไม่มีไดเรกทอรี {root}"}
+    target = root / ".nk" / f"{name}.sh"
+    if target.exists():
+        return 400, {"error": f"มีอยู่แล้ว: {target} — ลบหรือแก้ไฟล์นั้นเอง"}
+    ok, msg = write_stack(spec, target=target, omit_dir=True)
+    if not ok:
+        return 400, {"error": msg}
+    run_nk(["project", "add", str(root)], timeout=20)
+    user_copy = USER_STACKS / f"{name}.sh"
+    if user_copy.exists():
+        user_copy.unlink()
+    git = (root / ".git").exists()
+    return 200, {"ok": True, "output":
+                 f"ย้ายไป {target} แล้ว" + (" — commit โฟลเดอร์ .nk/ เพื่อให้ทีมได้ด้วย" if git else ""),
+                 "file": str(target)}
 
 
 def adopt_ports(name):
