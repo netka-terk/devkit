@@ -122,6 +122,42 @@ cell() {
   printf '%s%s%s%*s' "$color" "$plain" "${color:+$C_0}" "$pad" ''
 }
 
+# cmd_status_json — the same data as cmd_status, for the web dashboard.
+cmd_status_json() {
+  local name proj objs
+  proj=$(nk_project_root)
+  objs=$(
+    for name in $(nk_stacks); do
+      ( nk_load "$name" >/dev/null 2>&1 || exit 0
+        local origin ports port pids pid sep=
+        case "$NK_FILE" in
+          "$proj/$NK_PROJECT_DIRNAME"/*) origin=project ;;
+          "$NK_HOME"/*)                  origin=user ;;
+          *)                             origin=shared ;;
+        esac
+        ports=
+        for port in $NK_PORTS; do
+          pids=$(nk_port_pids "$port"); set -- $pids; pid=${1:-}
+          ports+="$sep{\"port\":$port,\"holder\":"
+          if [ -n "$pid" ]; then
+            ports+="$(nk_json_str "$(nk_pid_name "$pid")"),\"pid\":$pid}"
+          else
+            ports+="null,\"pid\":null}"
+          fi
+          sep=,
+        done
+        printf '{"name":%s,"origin":%s,"dir":%s,"url":%s,"note":%s,"running":%s,"hasToken":%s,"ports":[%s]}\n' \
+          "$(nk_json_str "$NK_NAME")" "$(nk_json_str "$origin")" \
+          "$(nk_json_str "$NK_DIR")" "$(nk_json_str "$NK_URL")" \
+          "$(nk_json_str "$NK_NOTE")" \
+          "$(nk_running "$name" && echo true || echo false)" \
+          "$([ -n "$NK_TOKEN_CMD" ] && echo true || echo false)" \
+          "$ports" )
+    done | paste -sd, -
+  )
+  printf '[%s]\n' "$objs"
+}
+
 cmd_status() {
   local names
   if [ $# -ge 1 ]; then names=$*; else names=$(nk_stacks); fi
@@ -347,6 +383,18 @@ EOF
   dim "    แก้ NK_PORTS / NK_PANES ให้ตรงกับโปรเจค แล้วสั่ง: nk up $name"
 }
 
+# ==================================================================== web ====
+
+# cmd_web [port] — serve the local dashboard. Loopback only: the endpoints
+# start and stop processes.
+cmd_web() {
+  local port=${1:-7777}
+  command -v python3 >/dev/null || die "ต้องมี python3 ก่อน"
+  case $port in ''|*[!0-9]*) die "port ต้องเป็นตัวเลข" ;; esac
+  # Serve from where nk web was invoked, so a project's .nk/ stacks are visible.
+  NK_CWD="$PWD" exec python3 "$NK_ROOT/lib/web.py" "$port"
+}
+
 # =================================================================== help ====
 
 cmd_help() {
@@ -362,6 +410,7 @@ ${C_B}nk${C_0} — dev stack runner (ใช้ได้กับทุกโป�
   ${C_B}nk kill <port>...${C_0}      เคลียร์ port ตรงๆ
   ${C_B}nk list [-n]${C_0}           stack ที่มองเห็นจากที่นี่
   ${C_B}nk init [name]${C_0}         สร้าง .nk/<name>.sh ให้โปรเจคปัจจุบัน
+  ${C_B}nk web [port]${C_0}          เปิดหน้าเว็บที่ 127.0.0.1:7777 (default)
 
   ${C_B}nk token [stack] [-f]${C_0}      token จาก NK_TOKEN_CMD (cache + mint ใหม่เมื่อใกล้หมดอายุ)
   ${C_B}nk curl [-s stack] [M] <path> [body]${C_0}  ยิง NK_API_BASE พร้อม Bearer token
@@ -383,7 +432,9 @@ case ${1:-help} in
   up)       shift; cmd_up "$@" ;;
   down)     shift; cmd_down "$@" ;;
   restart)  shift; cmd_restart "$@" ;;
-  status|st) shift; cmd_status "$@" ;;
+  status|st)
+    shift
+    if [ "${1:-}" = "--json" ]; then cmd_status_json; else cmd_status "$@"; fi ;;
   attach|a) shift; cmd_attach "$@" ;;
   logs)     shift; cmd_logs "$@" ;;
   kill)     shift; cmd_kill "$@" ;;
@@ -392,6 +443,7 @@ case ${1:-help} in
   curl)     shift; cmd_curl "$@" ;;
   mk|make)  shift; cmd_mk "$@" ;;
   init)     shift; cmd_init "$@" ;;
+  web)      shift; cmd_web "$@" ;;
   help|-h|--help) cmd_help ;;
   *) die "ไม่รู้จักคำสั่ง '$1' (ดู: nk help)" ;;
 esac

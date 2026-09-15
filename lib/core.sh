@@ -168,6 +168,16 @@ nk_free_port() {
 
 nk_free_ports() { local p; for p in $NK_PORTS; do nk_free_port "$p"; done; }
 
+# nk_json_str <text> — text as a JSON string literal, quotes included.
+nk_json_str() {
+  local v=${1//\\/\\\\}
+  v=${v//\"/\\\"}
+  v=${v//$'\n'/\\n}
+  v=${v//$'\t'/\\t}
+  v=${v//$'\r'/}
+  printf '"%s"' "$v"
+}
+
 # nk_port_state <port> — "free" | "<name> (pid N)"
 nk_port_state() {
   local pids; pids=$(nk_port_pids "$1")

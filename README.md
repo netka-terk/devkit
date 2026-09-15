@@ -18,11 +18,21 @@ removes the `make run` → error → `lsof -i :PORT` → `kill -9` → `make run
 
     nk init                # scaffold .nk/<name>.sh for the current project
     nk list                # stacks visible from here, and where each came from
+    nk web                 # dashboard on http://127.0.0.1:7777
 
     nk token mdm           # cached token from the stack's NK_TOKEN_CMD
     nk curl /api/health
     nk curl -s mdm POST /api/v1/hosts/1/remote-sessions
     nk mk -s mdm remote-session HOST=1
+
+## Web dashboard
+
+    nk web [port]          # default 7777
+
+Same actions as the CLI — up, restart, down, logs, and freeing a single port —
+with live status. It binds loopback only, because the endpoints start and stop
+processes; there is no auth and it must not be exposed. Stacks are resolved
+from the directory `nk web` was started in, so project `.nk/` stacks show up.
 
 ## Where stacks come from
 

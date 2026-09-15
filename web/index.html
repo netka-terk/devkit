@@ -1,0 +1,271 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nk — dev stacks</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --line: #e3e6ea; --fg: #1a1d21;
+    --muted: #6b7280; --accent: #2563eb; --up: #16a34a; --down: #9ca3af;
+    --warn: #d97706; --danger: #dc2626; --code: #f1f3f5;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a; --panel: #1b1f23; --line: #2b3137; --fg: #e6e9ec;
+      --muted: #8b939c; --accent: #60a5fa; --up: #4ade80; --down: #6b7280;
+      --warn: #fbbf24; --danger: #f87171; --code: #101417;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 20px 16px 48px; background: var(--bg); color: var(--fg);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Noto Sans Thai", sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+  h1 code { font-family: var(--mono); color: var(--accent); }
+  .sub { color: var(--muted); font-size: 13px; }
+  .tools { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    margin-top: 14px; overflow: hidden;
+  }
+  .row {
+    display: grid; grid-template-columns: 1fr auto; gap: 12px;
+    padding: 14px 16px; border-bottom: 1px solid var(--line);
+  }
+  .row:last-child { border-bottom: 0; }
+  .row.busy { opacity: .55; pointer-events: none; }
+
+  .name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .name b { font-size: 15px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--down); flex: none; }
+  .dot.on { background: var(--up); box-shadow: 0 0 0 3px color-mix(in srgb, var(--up) 22%, transparent); }
+  .tag {
+    font-size: 11px; padding: 1px 6px; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--muted); text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  .meta { color: var(--muted); font-size: 12.5px; margin-top: 3px; font-family: var(--mono); }
+  .ports { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .port {
+    font-family: var(--mono); font-size: 12px; padding: 2px 8px; border-radius: 6px;
+    background: var(--code); border: 1px solid var(--line);
+  }
+  .port.held { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+  .port.free { color: var(--muted); }
+  .port button {
+    all: unset; cursor: pointer; margin-left: 6px; color: var(--danger); font-weight: 600;
+  }
+  .note { color: var(--muted); font-size: 12.5px; margin-top: 6px; }
+
+  .actions { display: flex; gap: 6px; align-items: flex-start; flex-wrap: wrap; }
+  button.btn {
+    font: inherit; font-size: 13px; padding: 5px 11px; border-radius: 7px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+    cursor: pointer;
+  }
+  button.btn:hover { border-color: var(--accent); color: var(--accent); }
+  button.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.btn.primary:hover { filter: brightness(1.08); color: #fff; }
+  a.btn { text-decoration: none; }
+
+  pre.log {
+    margin: 0; padding: 12px 16px; background: var(--code); color: var(--fg);
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.45;
+    max-height: 420px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  }
+  .logbar {
+    display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+    border-bottom: 1px solid var(--line); font-size: 13px;
+  }
+  .logbar b { font-family: var(--mono); }
+  .logbar .tools { margin-left: auto; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 14px; max-width: min(90vw, 620px); box-shadow: 0 6px 24px rgba(0,0,0,.18);
+    font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap;
+    opacity: 0; pointer-events: none; transition: opacity .18s;
+  }
+  #toast.show { opacity: 1; }
+  #toast.err { border-color: var(--danger); color: var(--danger); }
+  label.chk { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+  .empty { padding: 28px 16px; text-align: center; color: var(--muted); }
+  @media (max-width: 620px) {
+    .row { grid-template-columns: 1fr; }
+    .actions { justify-content: flex-start; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1><code>nk</code> dev stacks</h1>
+    <span class="sub" id="sub">กำลังโหลด…</span>
+    <div class="tools">
+      <label class="chk"><input type="checkbox" id="auto" checked> auto refresh</label>
+      <button class="btn" id="refresh">รีเฟรช</button>
+    </div>
+  </header>
+
+  <div class="card" id="stacks"><div class="empty">กำลังโหลด…</div></div>
+
+  <div class="card" id="logcard" hidden>
+    <div class="logbar">
+      <span>log ของ <b id="logname"></b></span>
+      <div class="tools">
+        <button class="btn" id="logrefresh">รีเฟรช</button>
+        <button class="btn" id="logclose">ปิด</button>
+      </div>
+    </div>
+    <pre class="log" id="logtext"></pre>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let openLog = null;
+let busy = new Set();
+
+function toast(msg, isErr) {
+  const t = $('#toast');
+  t.textContent = String(msg || '').trim();
+  t.className = 'show' + (isErr ? ' err' : '');
+  clearTimeout(t._h);
+  t._h = setTimeout(() => (t.className = ''), 4500);
+}
+
+async function api(path, method = 'GET') {
+  const r = await fetch(path, { method });
+  const body = await r.json().catch(() => ({ error: 'ตอบกลับไม่ใช่ JSON' }));
+  if (!r.ok) throw new Error(body.error || r.statusText);
+  return body;
+}
+
+function portChip(p) {
+  const held = p.pid != null;
+  const cls = held ? 'port held' : 'port free';
+  const label = held ? `${p.port} · ${p.holder} (${p.pid})` : `${p.port} · ว่าง`;
+  const kill = held ? `<button data-kill="${p.port}" title="เคลียร์ port ${p.port}">✕</button>` : '';
+  return `<span class="${cls}">${esc(label)}${kill}</span>`;
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+function render(stacks) {
+  const host = $('#stacks');
+  if (!stacks.length) {
+    host.innerHTML = '<div class="empty">ยังไม่มี stack — สั่ง <code>nk init</code> ในโปรเจคของคุณ</div>';
+    return;
+  }
+  const up = stacks.filter((s) => s.running).length;
+  $('#sub').textContent = `${up}/${stacks.length} รันอยู่`;
+
+  host.innerHTML = stacks.map((s) => `
+    <div class="row ${busy.has(s.name) ? 'busy' : ''}" data-stack="${esc(s.name)}">
+      <div>
+        <div class="name">
+          <span class="dot ${s.running ? 'on' : ''}"></span>
+          <b>${esc(s.name)}</b>
+          <span class="tag">${esc(s.origin)}</span>
+        </div>
+        <div class="meta">${esc(s.dir)}</div>
+        <div class="ports">${s.ports.map(portChip).join('')}</div>
+        ${s.note ? `<div class="note">${esc(s.note)}</div>` : ''}
+      </div>
+      <div class="actions">
+        ${s.running
+          ? `<button class="btn" data-act="restart">restart</button>
+             <button class="btn" data-act="down">down</button>
+             <button class="btn" data-act="logs">logs</button>`
+          : `<button class="btn primary" data-act="up">up</button>`}
+        ${s.url ? `<a class="btn" href="${esc(s.url)}" target="_blank" rel="noopener">เปิด ↗</a>` : ''}
+      </div>
+    </div>`).join('');
+}
+
+async function refresh() {
+  try {
+    render(await api('/api/stacks'));
+  } catch (e) {
+    $('#sub').textContent = 'โหลดไม่ได้';
+    toast(e.message, true);
+  }
+}
+
+async function act(name, verb) {
+  busy.add(name);
+  render_busy(name, true);
+  try {
+    const r = await api(`/api/${verb}/${encodeURIComponent(name)}`, 'POST');
+    toast(r.output || `${verb} ${name} เสร็จแล้ว`, !r.ok);
+    if (openLog === name) loadLog(name);
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    busy.delete(name);
+    refresh();
+  }
+}
+
+function render_busy(name, on) {
+  const row = document.querySelector(`.row[data-stack="${CSS.escape(name)}"]`);
+  if (row) row.classList.toggle('busy', on);
+}
+
+async function loadLog(name) {
+  openLog = name;
+  $('#logcard').hidden = false;
+  $('#logname').textContent = name;
+  try {
+    const r = await api(`/api/logs/${encodeURIComponent(name)}`);
+    const pre = $('#logtext');
+    const atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 40;
+    pre.textContent = r.text || '(ว่าง)';
+    if (atBottom) pre.scrollTop = pre.scrollHeight;
+  } catch (e) {
+    $('#logtext').textContent = e.message;
+  }
+}
+
+document.addEventListener('click', async (ev) => {
+  const killBtn = ev.target.closest('[data-kill]');
+  if (killBtn) {
+    const port = killBtn.dataset.kill;
+    try {
+      const r = await api(`/api/kill/${port}`, 'POST');
+      toast(r.output || `เคลียร์ port ${port} แล้ว`, !r.ok);
+    } catch (e) { toast(e.message, true); }
+    return refresh();
+  }
+
+  const btn = ev.target.closest('[data-act]');
+  if (!btn) return;
+  const name = btn.closest('.row').dataset.stack;
+  const verb = btn.dataset.act;
+  if (verb === 'logs') return loadLog(name);
+  if (verb === 'down' && !confirm(`ปิด ${name} ?`)) return;
+  act(name, verb);
+});
+
+$('#refresh').onclick = refresh;
+$('#logrefresh').onclick = () => openLog && loadLog(openLog);
+$('#logclose').onclick = () => { openLog = null; $('#logcard').hidden = true; };
+
+setInterval(() => {
+  if (!$('#auto').checked || document.hidden) return;
+  refresh();
+  if (openLog) loadLog(openLog);
+}, 4000);
+
+refresh();
+</script>
