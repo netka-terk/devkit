@@ -18,10 +18,15 @@ else
   echo "· nk completion already in ~/.bashrc"
 fi
 
-case ":$PATH:" in
-  *":$BIN:"*) echo "✓ $BIN อยู่ใน PATH แล้ว" ;;
-  *) echo "! เพิ่มบรรทัดนี้ใน ~/.bashrc:  export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;
-esac
+# ~/.profile already adds ~/.local/bin, but only for login shells — WSL
+# terminals here start interactive non-login, so put it in ~/.bashrc too.
+PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
+if ! grep -qF "$PATH_LINE" "$HOME/.bashrc" 2>/dev/null; then
+  printf '\n# ~/.local/bin (nk)\n%s\n' "$PATH_LINE" >> "$HOME/.bashrc"
+  echo "✓ added $BIN to PATH in ~/.bashrc"
+else
+  echo "· $BIN already on PATH in ~/.bashrc"
+fi
 
 echo
 echo "เปิด shell ใหม่ (หรือ: exec bash) แล้วลอง:  nk status"
