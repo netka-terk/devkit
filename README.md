@@ -29,10 +29,18 @@ removes the `make run` → error → `lsof -i :PORT` → `kill -9` → `make run
 
     nk web [port]          # default 7777
 
-Same actions as the CLI — up, restart, down, logs, and freeing a single port —
-with live status. It binds loopback only, because the endpoints start and stop
-processes; there is no auth and it must not be exposed. Stacks are resolved
-from the directory `nk web` was started in, so project `.nk/` stacks show up.
+- **Define a stack from the page**: name, a path (with a directory picker), one
+  or more commands, and the ports to free first. Saved to
+  `~/.config/nk/stacks/`, which outranks `devkit/stacks`, so editing a shipped
+  stack writes a user override instead of rewriting a file under git.
+- **Run it**: up, restart, down, and freeing an individual port, over live status.
+- **Live terminal**: `nk up` points `tmux pipe-pane` at a file per pane, and the
+  page streams those over SSE with ANSI colour, one tab per pane. Output is not
+  polled.
+
+Loopback only: the endpoints start and stop processes, there is no auth, and it
+must not be exposed. Stacks resolve from the directory `nk web` was started in,
+so a project's `.nk/` stacks show up.
 
 ## Where stacks come from
 

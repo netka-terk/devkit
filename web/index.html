@@ -95,6 +95,64 @@
   #toast.err { border-color: var(--danger); color: var(--danger); }
   label.chk { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
   .empty { padding: 28px 16px; text-align: center; color: var(--muted); }
+
+  /* --- editor dialog --- */
+  dialog {
+    border: 1px solid var(--line); border-radius: 12px; background: var(--panel);
+    color: var(--fg); padding: 0; width: min(94vw, 640px); max-height: 88vh;
+  }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  .dlg-head, .dlg-foot {
+    display: flex; align-items: center; gap: 10px; padding: 14px 16px;
+  }
+  .dlg-head { border-bottom: 1px solid var(--line); font-weight: 600; }
+  .dlg-foot { border-top: 1px solid var(--line); }
+  .dlg-foot .sp { margin-left: auto; }
+  .dlg-body { padding: 16px; overflow: auto; max-height: 62vh; }
+  .field { margin-bottom: 14px; }
+  .field > label { display: block; font-size: 13px; margin-bottom: 5px; }
+  .field .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  input[type=text] {
+    width: 100%; font: inherit; padding: 7px 10px; border-radius: 7px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+  }
+  input[type=text]:focus { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 1px; }
+  input.mono { font-family: var(--mono); font-size: 13px; }
+  .pathrow { display: flex; gap: 6px; }
+  .pathrow input { flex: 1; }
+  .cmdrow { display: flex; gap: 6px; margin-bottom: 6px; align-items: center; }
+  .cmdrow input.lbl { flex: 0 0 120px; }
+  .cmdrow input.cmd { flex: 1; }
+  .cmdrow button { all: unset; cursor: pointer; color: var(--muted); padding: 0 6px; }
+  .cmdrow button:hover { color: var(--danger); }
+
+  .browser {
+    border: 1px solid var(--line); border-radius: 8px; margin-top: 8px;
+    max-height: 210px; overflow: auto; background: var(--bg);
+  }
+  .browser div {
+    padding: 5px 10px; cursor: pointer; font-family: var(--mono); font-size: 12.5px;
+    border-bottom: 1px solid var(--line);
+  }
+  .browser div:last-child { border-bottom: 0; }
+  .browser div:hover { background: var(--code); color: var(--accent); }
+
+  /* --- live terminal --- */
+  .tabs { display: flex; gap: 4px; }
+  .tabs button {
+    font: inherit; font-size: 12.5px; font-family: var(--mono);
+    padding: 3px 10px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--panel); color: var(--muted);
+  }
+  .tabs button.on { color: var(--fg); border-color: var(--accent); }
+  pre.term {
+    margin: 0; padding: 12px 16px; background: #0d1117; color: #c9d1d9;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.45;
+    height: 60vh; min-height: 260px; overflow: auto;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .live { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; }
+  .live .dot { width: 7px; height: 7px; }
   @media (max-width: 620px) {
     .row { grid-template-columns: 1fr; }
     .actions { justify-content: flex-start; }
@@ -108,6 +166,7 @@
     <div class="tools">
       <label class="chk"><input type="checkbox" id="auto" checked> auto refresh</label>
       <button class="btn" id="refresh">รีเฟรช</button>
+      <button class="btn primary" id="new">+ เพิ่ม stack</button>
     </div>
   </header>
 
@@ -115,15 +174,69 @@
 
   <div class="card" id="logcard" hidden>
     <div class="logbar">
-      <span>log ของ <b id="logname"></b></span>
+      <b id="logname"></b>
+      <div class="tabs" id="tabs"></div>
       <div class="tools">
-        <button class="btn" id="logrefresh">รีเฟรช</button>
+        <span class="live"><span class="dot" id="livedot"></span><span id="livetext">ต่ออยู่</span></span>
+        <label class="chk"><input type="checkbox" id="follow" checked> follow</label>
+        <button class="btn" id="logclear">ล้างจอ</button>
         <button class="btn" id="logclose">ปิด</button>
       </div>
     </div>
-    <pre class="log" id="logtext"></pre>
+    <pre class="term" id="logtext"></pre>
   </div>
 </div>
+
+<dialog id="editor">
+  <form method="dialog">
+    <div class="dlg-head"><span id="dlgtitle">stack ใหม่</span></div>
+    <div class="dlg-body">
+      <div class="field">
+        <label for="f-name">ชื่อ stack</label>
+        <input type="text" id="f-name" class="mono" placeholder="my-api" autocomplete="off">
+        <div class="hint">a-z A-Z 0-9 _ - เท่านั้น — ใช้เรียกใน <code>nk up &lt;ชื่อ&gt;</code></div>
+      </div>
+
+      <div class="field">
+        <label for="f-dir">path ที่จะรัน</label>
+        <div class="pathrow">
+          <input type="text" id="f-dir" class="mono" placeholder="/home/terk/myproject" autocomplete="off">
+          <button type="button" class="btn" id="f-browse">เลือก…</button>
+        </div>
+        <div class="browser" id="browser" hidden></div>
+      </div>
+
+      <div class="field">
+        <label>คำสั่งที่จะรัน</label>
+        <div id="f-cmds"></div>
+        <button type="button" class="btn" id="f-addcmd">+ เพิ่มคำสั่ง</button>
+        <div class="hint">แต่ละบรรทัดเปิดเป็น pane ของตัวเองใน tmux — ซ้ายคือชื่อ ขวาคือคำสั่ง</div>
+      </div>
+
+      <div class="field">
+        <label for="f-ports">port ที่ต้องเคลียร์ก่อนรัน</label>
+        <input type="text" id="f-ports" class="mono" placeholder="3000 8080" autocomplete="off">
+        <div class="hint">เว้นวรรคได้หลายตัว — ปล่อยว่างได้ถ้าไม่ต้องเคลียร์</div>
+      </div>
+
+      <div class="field">
+        <label for="f-url">URL (ไม่บังคับ)</label>
+        <input type="text" id="f-url" class="mono" placeholder="http://localhost:3000" autocomplete="off">
+      </div>
+
+      <div class="field">
+        <label for="f-env">ไฟล์ env ที่จะ source ก่อนรัน (ไม่บังคับ)</label>
+        <input type="text" id="f-env" class="mono" placeholder=".env" autocomplete="off">
+      </div>
+    </div>
+    <div class="dlg-foot">
+      <button type="button" class="btn" id="f-delete" hidden>ลบ</button>
+      <span class="sp"></span>
+      <button type="button" class="btn" id="f-cancel">ยกเลิก</button>
+      <button type="button" class="btn primary" id="f-save">บันทึก</button>
+    </div>
+  </form>
+</dialog>
 
 <div id="toast"></div>
 
@@ -186,8 +299,9 @@ function render(stacks) {
         ${s.running
           ? `<button class="btn" data-act="restart">restart</button>
              <button class="btn" data-act="down">down</button>
-             <button class="btn" data-act="logs">logs</button>`
-          : `<button class="btn primary" data-act="up">up</button>`}
+             <button class="btn" data-act="logs">terminal</button>`
+          : `<button class="btn primary" data-act="up">▶ run</button>`}
+        <button class="btn" data-act="edit">แก้</button>
         ${s.url ? `<a class="btn" href="${esc(s.url)}" target="_blank" rel="noopener">เปิด ↗</a>` : ''}
       </div>
     </div>`).join('');
@@ -208,7 +322,7 @@ async function act(name, verb) {
   try {
     const r = await api(`/api/${verb}/${encodeURIComponent(name)}`, 'POST');
     toast(r.output || `${verb} ${name} เสร็จแล้ว`, !r.ok);
-    if (openLog === name) loadLog(name);
+
   } catch (e) {
     toast(e.message, true);
   } finally {
@@ -222,49 +336,238 @@ function render_busy(name, on) {
   if (row) row.classList.toggle('busy', on);
 }
 
-async function loadLog(name) {
+// --- live terminal ------------------------------------------------------
+// tmux pipe-pane mirrors each pane into a file; the server tails those files
+// over SSE, so this only has to append and render ANSI.
+let es = null, panes = new Map(), activePane = null;
+
+const SGR = {
+  30:'#5c6370',31:'#e06c75',32:'#98c379',33:'#e5c07b',34:'#61afef',35:'#c678dd',
+  36:'#56b6c2',37:'#abb2bf',90:'#7f848e',91:'#ff7b72',92:'#7ee787',93:'#f0c674',
+  94:'#79c0ff',95:'#d2a8ff',96:'#76e3ea',97:'#f0f6fc',
+};
+
+// ansiToHtml — enough SGR support for make/webpack/go output.
+function ansiToHtml(text) {
+  let out = '', open = false, style = {};
+  const chunks = text.split(/\x1b\[([0-9;]*)m/);
+  for (let i = 0; i < chunks.length; i++) {
+    if (i % 2 === 0) {
+      if (!chunks[i]) continue;
+      const body = esc(chunks[i]);
+      if (!open) { out += body; continue; }
+      const css = [
+        style.color ? `color:${style.color}` : '',
+        style.bold ? 'font-weight:600' : '',
+        style.dim ? 'opacity:.65' : '',
+        style.underline ? 'text-decoration:underline' : '',
+      ].filter(Boolean).join(';');
+      out += css ? `<span style="${css}">${body}</span>` : body;
+    } else {
+      for (const code of (chunks[i] || '0').split(';')) {
+        const n = parseInt(code || '0', 10);
+        if (n === 0) { style = {}; open = false; }
+        else if (n === 1) { style.bold = true; open = true; }
+        else if (n === 2) { style.dim = true; open = true; }
+        else if (n === 4) { style.underline = true; open = true; }
+        else if (SGR[n]) { style.color = SGR[n]; open = true; }
+      }
+    }
+  }
+  // Carriage returns from progress bars would otherwise stack up forever.
+  return out.replace(/\r(?!\n)/g, '\n');
+}
+
+function setLive(on, msg) {
+  $('#livedot').classList.toggle('on', on);
+  $('#livetext').textContent = msg || (on ? 'ต่ออยู่' : 'ไม่ได้ต่อ');
+}
+
+function renderTabs() {
+  const host = $('#tabs');
+  const names = [...panes.keys()];
+  if (!activePane && names.length) activePane = names[0];
+  host.innerHTML = names.map((n) =>
+    `<button data-pane="${esc(n)}" class="${n === activePane ? 'on' : ''}">${esc(n)}</button>`
+  ).join('');
+  paint();
+}
+
+function paint() {
+  const pre = $('#logtext');
+  const buf = panes.get(activePane) || '';
+  const follow = $('#follow').checked;
+  pre.innerHTML = ansiToHtml(buf);
+  if (follow) pre.scrollTop = pre.scrollHeight;
+}
+
+function openTerm(name) {
+  closeTerm();
   openLog = name;
+  panes = new Map();
+  activePane = null;
   $('#logcard').hidden = false;
   $('#logname').textContent = name;
+  $('#logtext').textContent = '';
+  setLive(false, 'กำลังต่อ…');
+
+  es = new EventSource(`/api/stream/${encodeURIComponent(name)}`);
+  es.onopen = () => setLive(true);
+  es.onerror = () => setLive(false, 'หลุด — จะลองใหม่');
+  es.onmessage = (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
+    const known = panes.has(msg.pane);
+    // Cap each pane's buffer so a long-running stack cannot grow unbounded.
+    let buf = (panes.get(msg.pane) || '') + msg.text;
+    if (buf.length > 400000) buf = buf.slice(-300000);
+    panes.set(msg.pane, buf);
+    if (!known) renderTabs();
+    else if (msg.pane === activePane) paint();
+  };
+}
+
+function closeTerm() {
+  if (es) { es.close(); es = null; }
+  openLog = null;
+}
+
+$('#tabs').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-pane]');
+  if (!b) return;
+  activePane = b.dataset.pane;
+  renderTabs();
+});
+$('#logclear').onclick = () => { panes.set(activePane, ''); paint(); };
+$('#logclose').onclick = () => { closeTerm(); $('#logcard').hidden = true; };
+
+// --- stack editor -------------------------------------------------------
+const dlg = $('#editor');
+let editing = null;
+
+function cmdRow(label = '', cmd = '') {
+  const row = document.createElement('div');
+  row.className = 'cmdrow';
+  row.innerHTML = `
+    <input type="text" class="mono lbl" placeholder="ชื่อ" value="${esc(label)}">
+    <input type="text" class="mono cmd" placeholder="เช่น make run" value="${esc(cmd)}">
+    <button type="button" title="ลบบรรทัดนี้">✕</button>`;
+  row.querySelector('button').onclick = () => {
+    row.remove();
+    if (!$('#f-cmds').children.length) $('#f-cmds').append(cmdRow());
+  };
+  return row;
+}
+
+function openEditor(stack) {
+  editing = stack ? stack.name : null;
+  $('#dlgtitle').textContent = stack ? `แก้ ${stack.name}` : 'stack ใหม่';
+  $('#f-name').value = stack ? stack.name : '';
+  $('#f-name').disabled = !!stack;
+  $('#f-dir').value = stack ? stack.dir : '';
+  $('#f-ports').value = stack ? stack.ports : '';
+  $('#f-url').value = stack ? stack.url : '';
+  $('#f-env').value = stack ? (stack.envFile || '') : '';
+  $('#f-delete').hidden = !(stack && stack.editable);
+  $('#browser').hidden = true;
+
+  const host = $('#f-cmds');
+  host.innerHTML = '';
+  const rows = (stack && stack.panes.length) ? stack.panes : [{ label: 'app', cmd: '' }];
+  rows.forEach((r) => host.append(cmdRow(r.label, r.cmd)));
+  dlg.showModal();
+  if (!stack) $('#f-name').focus();
+}
+
+$('#new').onclick = () => openEditor(null);
+$('#f-addcmd').onclick = () => $('#f-cmds').append(cmdRow());
+$('#f-cancel').onclick = () => dlg.close();
+
+$('#f-browse').onclick = () => {
+  const b = $('#browser');
+  if (!b.hidden) { b.hidden = true; return; }
+  b.hidden = false;
+  browse($('#f-dir').value || '');
+};
+
+async function browse(path) {
+  const b = $('#browser');
   try {
-    const r = await api(`/api/logs/${encodeURIComponent(name)}`);
-    const pre = $('#logtext');
-    const atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 40;
-    pre.textContent = r.text || '(ว่าง)';
-    if (atBottom) pre.scrollTop = pre.scrollHeight;
+    const r = await api(`/api/browse?path=${encodeURIComponent(path)}`);
+    b.innerHTML =
+      (r.parent ? `<div data-go="${esc(r.parent)}">../</div>` : '') +
+      `<div data-pick="${esc(r.path)}"><b>เลือก ${esc(r.path)}</b></div>` +
+      r.dirs.map((d) => `<div data-go="${esc(r.path.replace(/\/$/, '') + '/' + d)}">${esc(d)}/</div>`).join('');
   } catch (e) {
-    $('#logtext').textContent = e.message;
+    b.innerHTML = `<div>${esc(e.message)}</div>`;
   }
 }
 
-document.addEventListener('click', async (ev) => {
-  const killBtn = ev.target.closest('[data-kill]');
-  if (killBtn) {
-    const port = killBtn.dataset.kill;
-    try {
-      const r = await api(`/api/kill/${port}`, 'POST');
-      toast(r.output || `เคลียร์ port ${port} แล้ว`, !r.ok);
-    } catch (e) { toast(e.message, true); }
-    return refresh();
+$('#browser').addEventListener('click', (ev) => {
+  const pick = ev.target.closest('[data-pick]');
+  if (pick) {
+    $('#f-dir').value = pick.dataset.pick;
+    $('#browser').hidden = true;
+    return;
   }
-
-  const btn = ev.target.closest('[data-act]');
-  if (!btn) return;
-  const name = btn.closest('.row').dataset.stack;
-  const verb = btn.dataset.act;
-  if (verb === 'logs') return loadLog(name);
-  if (verb === 'down' && !confirm(`ปิด ${name} ?`)) return;
-  act(name, verb);
+  const go = ev.target.closest('[data-go]');
+  if (go) browse(go.dataset.go);
 });
 
-$('#refresh').onclick = refresh;
-$('#logrefresh').onclick = () => openLog && loadLog(openLog);
-$('#logclose').onclick = () => { openLog = null; $('#logcard').hidden = true; };
+$('#f-save').onclick = async () => {
+  const spec = {
+    name: $('#f-name').value.trim(),
+    dir: $('#f-dir').value.trim(),
+    ports: $('#f-ports').value.trim(),
+    url: $('#f-url').value.trim(),
+    envFile: $('#f-env').value.trim(),
+    panes: [...$('#f-cmds').querySelectorAll('.cmdrow')].map((r) => ({
+      label: r.querySelector('.lbl').value.trim(),
+      cmd: r.querySelector('.cmd').value.trim(),
+    })).filter((r) => r.cmd),
+  };
+  try {
+    const r = await fetch('/api/stack', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(spec),
+    });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'บันทึกไม่สำเร็จ');
+    toast(body.output);
+    dlg.close();
+    refresh();
+  } catch (e) {
+    toast(e.message, true);
+  }
+};
 
+$('#f-delete').onclick = async () => {
+  if (!editing || !confirm(`ลบ stack ${editing} ?`)) return;
+  try {
+    const r = await api(`/api/stack/${encodeURIComponent(editing)}`, 'DELETE');
+    toast(r.output);
+    dlg.close();
+    refresh();
+  } catch (e) {
+    toast(e.message, true);
+  }
+};
+
+async function editStack(name) {
+  try {
+    const stack = await api(`/api/stack/${encodeURIComponent(name)}`);
+    if (stack.error) throw new Error(stack.error);
+    openEditor(stack);
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+// Status still polls; the terminal streams on its own.
 setInterval(() => {
   if (!$('#auto').checked || document.hidden) return;
   refresh();
-  if (openLog) loadLog(openLog);
 }, 4000);
 
 refresh();

@@ -52,7 +52,9 @@ cmd_up() {
   info "เริ่ม $C_B$name$C_0 ที่ $NK_DIR"
   nk_free_ports
 
-  local first=1 pane label cmd
+  local first=1 pane label cmd logf
+  local logdir="$NK_CACHE/logs"
+  mkdir -p "$logdir"
   for pane in "${NK_PANES[@]}"; do
     label=${pane%%|*}; cmd=${pane#*|}
     # bash -ic: .bashrc returns early for non-interactive shells, so an
@@ -69,6 +71,11 @@ cmd_up() {
       tmux select-layout -t "$sess:" even-vertical >/dev/null
     fi
     tmux select-pane -t "$sess:" -T "$label"
+    # Mirror the pane byte-for-byte into a file so the web terminal can stream
+    # it live instead of re-capturing the scrollback on a timer.
+    logf="$logdir/$NK_NAME--$label.log"
+    : > "$logf"
+    tmux pipe-pane -o -t "$sess:" "cat >> $(printf %q "$logf")"
     ok "pane $label → $cmd"
   done
 
@@ -156,6 +163,23 @@ cmd_status_json() {
     done | paste -sd, -
   )
   printf '[%s]\n' "$objs"
+}
+
+# cmd_show <stack> — one stack's editable fields as JSON, for the web form.
+cmd_show() {
+  [ $# -ge 1 ] || die "ใช้: nk show <stack>"
+  nk_load "$1"
+  local pane label cmd panes= sep=
+  for pane in "${NK_PANES[@]}"; do
+    label=${pane%%|*}; cmd=${pane#*|}
+    panes+="$sep{\"label\":$(nk_json_str "$label"),\"cmd\":$(nk_json_str "$cmd")}"
+    sep=,
+  done
+  printf '{"name":%s,"dir":%s,"ports":%s,"url":%s,"note":%s,"envFile":%s,"file":%s,"panes":[%s]}\n' \
+    "$(nk_json_str "$NK_NAME")" "$(nk_json_str "$NK_DIR")" \
+    "$(nk_json_str "$NK_PORTS")" "$(nk_json_str "$NK_URL")" \
+    "$(nk_json_str "$NK_NOTE")" "$(nk_json_str "$NK_ENV_FILE")" \
+    "$(nk_json_str "$NK_FILE")" "$panes"
 }
 
 cmd_status() {
@@ -444,6 +468,8 @@ case ${1:-help} in
   mk|make)  shift; cmd_mk "$@" ;;
   init)     shift; cmd_init "$@" ;;
   web)      shift; cmd_web "$@" ;;
+  logdir)   printf '%s\n' "$NK_CACHE/logs" ;;
+  show)     shift; cmd_show "$@" ;;
   help|-h|--help) cmd_help ;;
   *) die "ไม่รู้จักคำสั่ง '$1' (ดู: nk help)" ;;
 esac
