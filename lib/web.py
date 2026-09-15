@@ -275,6 +275,8 @@ class Handler(BaseHTTPRequestHandler):
                              f"(ไม่มี {f})"})
             run_nk(["down", name], timeout=60)
             f.unlink()
+            for log in LOG_DIR.glob(f"{name}--*.log"):
+                log.unlink(missing_ok=True)
             return self.send_json(200, {"ok": True, "output": f"ลบ {name} แล้ว"})
         return self.send_json(404, {"error": "not found"})
 

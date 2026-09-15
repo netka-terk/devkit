@@ -55,6 +55,9 @@ cmd_up() {
   local first=1 pane label cmd logf
   local logdir="$NK_CACHE/logs"
   mkdir -p "$logdir"
+  # Drop every log this stack left behind, not just the panes it has now — a
+  # renamed or removed pane would otherwise linger as a phantom terminal tab.
+  rm -f "$logdir/$NK_NAME--"*.log
   for pane in "${NK_PANES[@]}"; do
     label=${pane%%|*}; cmd=${pane#*|}
     # bash -ic: .bashrc returns early for non-interactive shells, so an
