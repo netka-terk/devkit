@@ -16,7 +16,7 @@ const detail = (n) => ({ name: n, dir: `/home/u/${n[0]}`, ports: '3000', url: 'h
   envFile: '', panes: [{ label: 'app', cmd: 'make run' }], editable: true });
 
 const calls = [];
-const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true,
+const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://localhost/',
   beforeParse(w) {
     w.fetch = async (url, opts = {}) => {
       calls.push(`${opts.method || 'GET'} ${url}`);
@@ -26,7 +26,7 @@ const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true
         : { ok: true, output: 'done' };
       return { ok: true, json: async () => body };
     };
-    w.EventSource = class { constructor(u) { calls.push(`SSE ${u}`); this.readyState = 1; } close() {} };
+    w.EventSource = class { constructor(u) { calls.push(`SSE ${u}`); this.readyState = 1; w.__es = this; } close() {} };
     w.confirm = () => true;
     w.matchMedia = () => ({ matches: false });
     w.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
@@ -49,6 +49,24 @@ check('stack ที่รันอยู่มีปุ่ม รีสตาร
 check('port ที่เจอตอนรันแต่ไม่ได้ประกาศ แสดงพร้อม tag', d.querySelector('#main').textContent.includes(':9229') && !!d.querySelector('.tag.auto'));
 calls.length = 0; click(d.querySelector('[data-adopt]')); await sleep(80);
 check('จำ port ที่เจอ → POST /api/adopt/alpha', has('POST /api/adopt/alpha'), calls.join(', '));
+
+// Terminal: feed two panes through the mocked stream, then split.
+const feed = (pane, text) => w.__es.onmessage({ data: JSON.stringify({ pane, text }) });
+feed('backend', 'INFO listening :3000\n'); feed('frontend', 'webpack compiled\n');
+check('แท็บ 2 pane', d.querySelectorAll('#tabs [data-pane]').length === 2 && !!d.querySelector('#logtext'));
+click(d.querySelector('[data-mode="cols"]'));
+check('แยกซ้าย-ขวา → 2 pane พร้อมกัน', d.querySelectorAll('.split.cols .pane').length === 2);
+check('แต่ละ pane มี output ของตัวเอง',
+  d.querySelector('[data-pre="backend"]')?.textContent.includes(':3000') && d.querySelector('[data-pre="frontend"]')?.textContent.includes('webpack'));
+feed('frontend', 'rebuilt\n');
+check('stream ใหม่เข้า pane ที่ถูกต้องตอนแยกจอ', d.querySelector('[data-pre="frontend"]')?.textContent.includes('rebuilt') && !d.querySelector('[data-pre="backend"]')?.textContent.includes('rebuilt'));
+click(d.querySelector('[data-mode="rows"]'));
+check('แยกบน-ล่าง', d.querySelectorAll('.split.rows .pane').length === 2);
+click(d.querySelector('[data-clear="backend"]'));
+check('ล้างเฉพาะ pane เดียว', !d.querySelector('[data-pre="backend"]')?.textContent.includes(':3000') && d.querySelector('[data-pre="frontend"]')?.textContent.includes('rebuilt'));
+click(d.querySelector('[data-max="frontend"]'));
+check('ขยาย pane → กลับเป็นแท็บที่ pane นั้น', !!d.querySelector('#logtext') && d.querySelector('#tabs .on')?.dataset.pane === 'frontend' && d.querySelector('#logtext').textContent.includes('rebuilt'));
+check('จำโหมดไว้', w.localStorage.getItem('nk-term') === 'tabs');
 
 calls.length = 0; click(d.querySelector('[data-act="restart"]')); await sleep(80);
 check('รีสตาร์ท → POST /api/restart/alpha', has('POST /api/restart/alpha'), calls.join(', '));
