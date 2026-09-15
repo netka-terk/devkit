@@ -1,0 +1,397 @@
+#!/usr/bin/env bash
+# nk — one CLI for the local NLG/Netka dev stacks.
+#
+# Every `nk up` frees the stack's ports before starting, which is the whole
+# point: the shell history that motivated this had ~101 rounds of
+# `lsof -i :PORT` followed by `kill -9`.
+set -uo pipefail
+
+NK_ROOT=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)
+# shellcheck source=../lib/core.sh
+. "$NK_ROOT/lib/core.sh"
+
+NK_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/nk"
+
+# ===================================================================== up ====
+
+cmd_up() {
+  local attach=0
+  while [ $# -gt 0 ]; do
+    case $1 in
+      -a|--attach) attach=1; shift ;;
+      -*) die "ไม่รู้จัก option $1" ;;
+      *) break ;;
+    esac
+  done
+  [ $# -ge 1 ] || die "ใช้: nk up [-a] <stack>   (ดู stack: nk list)"
+
+  local name=$1 sess
+  nk_load "$name"
+  sess=$(nk_session "$name")
+  nk_require_tmux
+
+  if nk_running "$name"; then
+    info "$name รันอยู่แล้ว"
+    [ "$attach" = 1 ] && exec tmux attach -t "=$sess"
+    cmd_status "$name"
+    return 0
+  fi
+
+  # Shut a sibling stack down properly when it shares a port (grafana vs glx),
+  # so we don't leave its tmux session alive around a killed process.
+  local hit other port
+  for hit in $(nk_port_conflicts "$name"); do
+    other=${hit%%:*}; port=${hit##*:}
+    if nk_running "$other"; then
+      warn "$other ใช้ port $port อยู่ — หยุด $other ก่อน"
+      cmd_down "$other"
+    fi
+  done
+  nk_load "$name"   # cmd_down loaded the other stack; restore ours
+
+  info "เริ่ม $C_B$name$C_0 ที่ $NK_DIR"
+  nk_free_ports
+
+  local first=1 pane label cmd
+  for pane in "${NK_PANES[@]}"; do
+    label=${pane%%|*}; cmd=${pane#*|}
+    # bash -ic: .bashrc returns early for non-interactive shells, so an
+    # interactive pane shell is what makes nvm (node/yarn) available.
+    # Window/pane targets take "<session>:", not the "=<session>" exact-match
+    # form that only target-session accepts.
+    if [ "$first" = 1 ]; then
+      tmux new-session -d -s "$sess" -n "$NK_NAME" -c "$NK_DIR" \
+        bash -ic "$(nk_pane_cmd "$cmd")" || die "สร้าง tmux session ไม่สำเร็จ"
+      first=0
+    else
+      tmux split-window -t "$sess:" -c "$NK_DIR" \
+        bash -ic "$(nk_pane_cmd "$cmd")" || die "สร้าง pane $label ไม่สำเร็จ"
+      tmux select-layout -t "$sess:" even-vertical >/dev/null
+    fi
+    tmux select-pane -t "$sess:" -T "$label"
+    ok "pane $label → $cmd"
+  done
+
+  tmux set-option -t "$sess" -q mouse on 2>/dev/null
+  tmux set-option -t "$sess" -q pane-border-status top 2>/dev/null
+  [ -n "$NK_URL" ]  && dim "    $NK_URL"
+  [ -n "$NK_NOTE" ] && dim "    $NK_NOTE"
+  echo
+  dim "    nk attach $name   # เข้าไปดู log"
+  dim "    nk down $name     # ปิด"
+
+  [ "$attach" = 1 ] && exec tmux attach -t "=$sess"
+  return 0
+}
+
+# =================================================================== down ====
+
+cmd_down() {
+  [ $# -ge 1 ] || die "ใช้: nk down <stack|all>"
+  if [ "$1" = all ]; then
+    local s
+    for s in $(nk_stacks); do nk_running "$s" && cmd_down "$s"; done
+    return 0
+  fi
+
+  local name=$1
+  nk_load "$name"
+  if nk_running "$name"; then
+    tmux kill-session -t "=$(nk_session "$name")" 2>/dev/null
+    ok "ปิด session $name แล้ว"
+  else
+    dim "    $name ไม่ได้รันอยู่"
+  fi
+  # Always sweep the ports: a process started outside nk still holds them.
+  nk_free_ports
+}
+
+cmd_restart() {
+  [ $# -ge 1 ] || die "ใช้: nk restart <stack>"
+  cmd_down "$1" >/dev/null
+  cmd_up "$@"
+}
+
+# ================================================================= status ====
+
+# cell <width> <plain> [color] — pad by the PLAIN length so ANSI codes, which
+# printf's %-Ns counts as visible characters, cannot skew the columns.
+cell() {
+  local w=$1 plain=$2 color=${3:-} pad=$(( $1 - ${#2} ))
+  [ "$pad" -lt 1 ] && pad=1
+  printf '%s%s%s%*s' "$color" "$plain" "${color:+$C_0}" "$pad" ''
+}
+
+cmd_status() {
+  local names
+  if [ $# -ge 1 ]; then names=$*; else names=$(nk_stacks); fi
+
+  printf '%s%-10s %-8s %-6s %-26s %s%s\n' \
+    "$C_B" STACK SESSION PORT HOLDER URL "$C_0"
+
+  local name port state first
+  for name in $names; do
+    ( nk_load "$name" >/dev/null 2>&1 || exit 0
+      local sess_text sess_color
+      if nk_running "$name"; then sess_text=up;   sess_color=$C_GRN
+      else                        sess_text=down; sess_color=$C_DIM; fi
+
+      first=1
+      for port in $NK_PORTS; do
+        state=$(nk_port_state "$port")
+        if [ "$first" = 1 ]; then
+          cell 11 "$name"
+          cell 9 "$sess_text" "$sess_color"
+        else
+          cell 11 ''; cell 9 ''
+        fi
+        cell 7 "$port"
+        if [ "$state" = free ]; then cell 27 free "$C_DIM"; else cell 27 "$state"; fi
+        [ "$first" = 1 ] && printf '%s' "$NK_URL"
+        echo
+        first=0
+      done
+    )
+  done
+}
+
+# ================================================= attach / logs / kill ======
+
+cmd_attach() {
+  [ $# -ge 1 ] || die "ใช้: nk attach <stack>"
+  nk_load "$1"
+  nk_running "$1" || die "$1 ไม่ได้รันอยู่ (เริ่มด้วย: nk up $1)"
+  exec tmux attach -t "=$(nk_session "$1")"
+}
+
+cmd_logs() {
+  [ $# -ge 1 ] || die "ใช้: nk logs <stack> [บรรทัด]"
+  local name=$1 lines=${2:-200} sess pane
+  nk_load "$name"
+  nk_running "$name" || die "$name ไม่ได้รันอยู่"
+  sess=$(nk_session "$name")
+  for pane in $(tmux list-panes -t "=$sess" -F '#{pane_id}'); do
+    printf '%s--- %s ---%s\n' "$C_B" "$(tmux display -p -t "$pane" '#{pane_title}')" "$C_0"
+    tmux capture-pane -p -t "$pane" -S "-$lines"
+  done
+}
+
+cmd_kill() {
+  [ $# -ge 1 ] || die "ใช้: nk kill <port> [port...]"
+  local p; for p in "$@"; do nk_free_port "$p"; done
+}
+
+# cmd_list [-n] — stacks visible from here; -n prints bare names (completion).
+cmd_list() {
+  local name origin proj
+  if [ "${1:-}" = "-n" ]; then nk_stacks; return; fi
+  proj=$(nk_project_root)
+  for name in $(nk_stacks); do
+    ( nk_load "$name" >/dev/null 2>&1 || exit 0
+      case "$NK_FILE" in
+        "$proj/$NK_PROJECT_DIRNAME"/*) origin=project ;;
+        "$NK_HOME"/*)                  origin=user ;;
+        *)                             origin=shared ;;
+      esac
+      cell 11 "$name" "$C_B"
+      cell 9 "$origin" "$C_DIM"
+      cell 34 "$NK_DIR"
+      printf 'ports: %s\n' "$NK_PORTS" )
+  done
+}
+
+# ================================================================== token ====
+
+# nk_need_stack [name] — resolve and load the stack that token/curl/mk act on.
+nk_need_stack() {
+  local name
+  name=$(nk_resolve_stack "${1:-}") || die \
+    "ระบุ stack ไม่ได้ — ใส่ชื่อมาตรงๆ, ตั้ง NK_STACK=<stack>, หรือ cd เข้าโปรเจคที่มี .nk/"
+  nk_load "$name"
+}
+
+# cmd_token [stack] [-f] — print the stack's auth token, minting a new one only
+# when the cache is missing or within 10 minutes of expiry. The stack supplies
+# NK_TOKEN_CMD; nk only handles caching and expiry.
+cmd_token() {
+  local force=0 name=
+  while [ $# -gt 0 ]; do
+    case $1 in -f|--force) force=1; shift ;; *) name=$1; shift ;; esac
+  done
+  nk_need_stack "$name"
+  [ -n "$NK_TOKEN_CMD" ] || die "$NK_NAME: ไม่ได้ตั้ง NK_TOKEN_CMD ใน $NK_FILE"
+
+  local cache="$NK_CACHE/token-$NK_NAME" tok exp now
+  mkdir -p "$NK_CACHE"
+
+  if [ "$force" = 0 ] && [ -s "$cache" ]; then
+    tok=$(<"$cache")
+    exp=$(nk_jwt_exp "$tok")
+    now=$(date +%s)
+    # A token with no readable exp is opaque, not invalid — keep using it.
+    if [ -z "$exp" ] || [ "$exp" -gt $((now + 600)) ]; then
+      printf '%s\n' "$tok"
+      return 0
+    fi
+  fi
+
+  tok=$(cd "$NK_DIR" && eval "$NK_TOKEN_CMD" 2>/dev/null | tr -d '\r\n')
+  [ -n "$tok" ] || die "mint token ไม่สำเร็จ (ลองเอง: cd $NK_DIR && $NK_TOKEN_CMD)"
+  printf '%s' "$tok" > "$cache"
+  chmod 600 "$cache"
+  printf '%s\n' "$tok"
+}
+
+# nk_jwt_exp <token> — the exp claim, or empty if the token is not a readable JWT.
+nk_jwt_exp() {
+  local payload
+  payload=$(printf '%s' "$1" | cut -d. -f2)
+  case $(( ${#payload} % 4 )) in 2) payload+='==' ;; 3) payload+='=' ;; esac
+  printf '%s' "$payload" | tr '_-' '/+' | base64 -d 2>/dev/null |
+    sed -n 's/.*"exp":[[:space:]]*\([0-9]*\).*/\1/p'
+}
+
+# =================================================================== curl ====
+
+# cmd_curl [-s stack] [METHOD] <path> [json-body] — request against the stack's
+# NK_API_BASE with its token attached.
+#   nk curl /api/health
+#   nk curl POST /api/v1/hosts/1/remote-sessions
+#   nk curl -s mdm POST /api/v1/hosts/1/terminal-sessions '{"shell":"bash"}'
+cmd_curl() {
+  local name=
+  while [ "${1:-}" = "-s" ] || [ "${1:-}" = "--stack" ]; do name=$2; shift 2; done
+  [ $# -ge 1 ] || die "ใช้: nk curl [-s stack] [METHOD] <path> [json-body]"
+
+  local method=GET
+  case ${1^^} in
+    GET|POST|PUT|PATCH|DELETE|HEAD) method=${1^^}; shift ;;
+  esac
+  [ $# -ge 1 ] || die "ต้องระบุ path เช่น /api/health"
+
+  nk_need_stack "$name"
+  local base=${NK_API_BASE:-$NK_URL}
+  [ -n "$base" ] || die "$NK_NAME: ไม่ได้ตั้ง NK_API_BASE หรือ NK_URL ใน $NK_FILE"
+
+  local path=$1 body=${2:-} args=(-ks -X "$method")
+  [ "${path#/}" = "$path" ] && path="/$path"
+
+  if [ -n "$NK_TOKEN_CMD" ]; then
+    local tok; tok=$(cmd_token "$NK_NAME") || exit 1
+    args+=(-H "Authorization: Bearer $tok")
+  fi
+  [ -n "$body" ] && args+=(-H 'Content-Type: application/json' -d "$body")
+
+  curl "${args[@]}" "$base$path"
+  echo
+}
+
+# cmd_mk [-s stack] <args...> — run make in the stack's directory from anywhere.
+cmd_mk() {
+  local name=
+  while [ "${1:-}" = "-s" ] || [ "${1:-}" = "--stack" ]; do name=$2; shift 2; done
+  [ $# -ge 1 ] || die "ใช้: nk mk [-s stack] <make-target> [VAR=value...]"
+  nk_need_stack "$name"
+  ( cd "$NK_DIR" && exec make "$@" )
+}
+
+# =================================================================== init ====
+
+# cmd_init [name] — scaffold <project>/.nk/<name>.sh from what the repo looks
+# like, so a new project is one edit away from `nk up`.
+cmd_init() {
+  local root name dir file
+  root=$(nk_project_root)
+  name=${1:-$(basename "$root")}
+  dir="$root/$NK_PROJECT_DIRNAME"
+  file="$dir/$name.sh"
+
+  [ -e "$file" ] && die "มีอยู่แล้ว: $file"
+  mkdir -p "$dir"
+
+  local panes='  "app|<คำสั่งรัน>"' note=''
+  if [ -f "$root/Makefile" ]; then
+    # `make -qp` always exits non-zero in question mode, so shield the pipeline
+    # from pipefail or the target probe never succeeds.
+    if { make -C "$root" -qp 2>/dev/null || true; } | grep -q '^run:'; then
+      panes='  "app|make run"'
+    else
+      panes='  "app|make <target>"'
+      note="ดู target ทั้งหมด: make help"
+    fi
+  elif [ -f "$root/docker-compose.yml" ] || [ -f "$root/compose.yml" ]; then
+    panes='  "app|docker compose up --build"'
+  elif [ -f "$root/go.mod" ]; then
+    panes='  "app|go run ./..."'
+  fi
+  if [ -f "$root/package.json" ]; then
+    local js='  "web|yarn start"'
+    grep -q '"dev"' "$root/package.json" 2>/dev/null && js='  "web|yarn dev"'
+    panes="$panes"$'\n'"$js"
+  fi
+
+  cat > "$file" <<EOF
+# $name — generated by \`nk init\`. NK_DIR ปล่อยว่างได้ (default = $root)
+NK_PORTS="3000"                 # port ที่จะเคลียร์ก่อน start (เว้นวรรคได้หลายตัว)
+NK_URL="http://localhost:3000"
+#NK_ENV_FILE=".env"             # source ก่อนรันทุก pane
+#NK_API_BASE="http://localhost:3000"   # base ของ nk curl
+#NK_TOKEN_CMD="make -s admin-token"    # คำสั่ง mint token ให้ nk token/curl
+NK_PANES=(
+$panes
+)
+NK_NOTE="$note"
+EOF
+
+  ok "สร้าง $file"
+  dim "    แก้ NK_PORTS / NK_PANES ให้ตรงกับโปรเจค แล้วสั่ง: nk up $name"
+}
+
+# =================================================================== help ====
+
+cmd_help() {
+  cat <<EOF
+${C_B}nk${C_0} — dev stack runner (ใช้ได้กับทุกโปรเจค)
+
+  ${C_B}nk up [-a] <stack>${C_0}     เคลียร์ port แล้วเริ่ม stack ใน tmux (-a = เข้าไปเลย)
+  ${C_B}nk down <stack|all>${C_0}    ปิด session แล้วเคลียร์ port
+  ${C_B}nk restart <stack>${C_0}     down + up
+  ${C_B}nk status [stack]${C_0}      ดูว่า stack ไหนรันอยู่ ใครจับ port ไหน
+  ${C_B}nk attach <stack>${C_0}      เข้า tmux session
+  ${C_B}nk logs <stack> [n]${C_0}    ดึง log ล่าสุดจากทุก pane (default 200 บรรทัด)
+  ${C_B}nk kill <port>...${C_0}      เคลียร์ port ตรงๆ
+  ${C_B}nk list [-n]${C_0}           stack ที่มองเห็นจากที่นี่
+  ${C_B}nk init [name]${C_0}         สร้าง .nk/<name>.sh ให้โปรเจคปัจจุบัน
+
+  ${C_B}nk token [stack] [-f]${C_0}      token จาก NK_TOKEN_CMD (cache + mint ใหม่เมื่อใกล้หมดอายุ)
+  ${C_B}nk curl [-s stack] [M] <path> [body]${C_0}  ยิง NK_API_BASE พร้อม Bearer token
+  ${C_B}nk mk [-s stack] <target>${C_0}  รัน make ในไดเรกทอรีของ stack จากที่ไหนก็ได้
+
+stack มาจาก 3 ที่ (โปรเจคชนะเสมอ):
+  <project>/.nk/*.sh    ← commit ไปกับ repo ได้ ไม่ต้องใส่ path เต็ม
+  $NK_HOME/stacks/*.sh
+  $NK_ROOT/stacks/*.sh
+
+stack ที่มองเห็นจากที่นี่:
+$(cmd_list | sed 's/^/  /')
+EOF
+}
+
+# =================================================================== main ====
+
+case ${1:-help} in
+  up)       shift; cmd_up "$@" ;;
+  down)     shift; cmd_down "$@" ;;
+  restart)  shift; cmd_restart "$@" ;;
+  status|st) shift; cmd_status "$@" ;;
+  attach|a) shift; cmd_attach "$@" ;;
+  logs)     shift; cmd_logs "$@" ;;
+  kill)     shift; cmd_kill "$@" ;;
+  list|ls)  shift; cmd_list "$@" ;;
+  token)    shift; cmd_token "$@" ;;
+  curl)     shift; cmd_curl "$@" ;;
+  mk|make)  shift; cmd_mk "$@" ;;
+  init)     shift; cmd_init "$@" ;;
+  help|-h|--help) cmd_help ;;
+  *) die "ไม่รู้จักคำสั่ง '$1' (ดู: nk help)" ;;
+esac
