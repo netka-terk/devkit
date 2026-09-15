@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""nk web — a local dashboard for the nk stacks.
+"""D3v — the local web console for nk (served by `nk web` / `d3v`).
 
 Binds to loopback only: the endpoints start and stop processes, so this must
 never be reachable from the network. All state comes from the `nk` CLI itself,
@@ -138,6 +138,14 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             f = WEB / "index.html"
             return self.send(200, f.read_bytes(), "text/html; charset=utf-8")
+
+        # Menu modules. Name is whitelisted, so no traversal out of web/modules.
+        if path.startswith("/modules/"):
+            name = path[len("/modules/"):]
+            f = WEB / "modules" / name
+            if re.match(r"^[A-Za-z0-9_-]+\.js$", name) and f.is_file():
+                return self.send(200, f.read_bytes(), "application/javascript; charset=utf-8")
+            return self.send_json(404, {"error": "not found"})
 
         if path == "/api/stacks":
             rc, out, err = run_nk(["status", "--json"], timeout=30)
@@ -334,7 +342,7 @@ def main():
     if not shutil.which("tmux"):
         print("! ไม่พบ tmux — nk up จะใช้ไม่ได้", file=sys.stderr)
     srv = ThreadingHTTPServer((host, port), Handler)
-    print(f"nk web → http://{host}:{port}  (ctrl-c เพื่อหยุด)")
+    print(f"D3v by terk → http://{host}:{port}  (ctrl-c เพื่อหยุด)")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

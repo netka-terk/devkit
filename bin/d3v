@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# d3v — open the D3v console (same as `nk web`).
+exec "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/nk" web "$@"

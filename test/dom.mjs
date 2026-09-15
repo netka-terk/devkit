@@ -5,6 +5,9 @@ import fs from 'node:fs';
 import { JSDOM } from 'jsdom';
 
 const html = fs.readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
+// jsdom ignores <script src> without a resource loader, so the menu modules are
+// injected by hand after the shell has run — same order as the page.
+const modules = ['stacks', 'ports'].map((m) => fs.readFileSync(new URL(`../web/modules/${m}.js`, import.meta.url), 'utf8'));
 const stacks = [
   { name: 'alpha', origin: 'user', dir: '/home/u/a', url: 'http://x', note: 'n',
     running: true, hasToken: false, ports: [{ port: 3000, holder: 'node', pid: 42 }],
@@ -40,7 +43,11 @@ let fail = 0;
 const check = (label, cond, extra = '') => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${label}${cond ? '' : '  → ' + extra}`); if (!cond) fail++; };
 const has = (c) => calls.some((x) => x.startsWith(c));
 
+for (const src of modules) w.eval(src);
 await sleep(200);
+check('shell มีเมนู 2 อัน', d.querySelectorAll('#menu [data-route]').length === 2);
+check('เมนูแรก (Stacks) ถูก mount และ active', d.querySelector('#view').classList.contains('m-stacks') && d.querySelector('[data-route="stacks"]').classList.contains('on'));
+check('title เป็นชื่อโปรแกรม', d.title === 'Stacks · D3v', d.title);
 check('โหลดรายการตอนเปิด', has('GET /api/stacks'));
 check('sidebar มี 2 stack', d.querySelectorAll('[data-select]').length === 2);
 check('เลือกตัวแรกให้เองและเปิด terminal stream', has('SSE /api/stream/alpha'));
@@ -66,7 +73,7 @@ click(d.querySelector('[data-clear="backend"]'));
 check('ล้างเฉพาะ pane เดียว', !d.querySelector('[data-pre="backend"]')?.textContent.includes(':3000') && d.querySelector('[data-pre="frontend"]')?.textContent.includes('rebuilt'));
 click(d.querySelector('[data-max="frontend"]'));
 check('ขยาย pane → กลับเป็นแท็บที่ pane นั้น', !!d.querySelector('#logtext') && d.querySelector('#tabs .on')?.dataset.pane === 'frontend' && d.querySelector('#logtext').textContent.includes('rebuilt'));
-check('จำโหมดไว้', w.localStorage.getItem('nk-term') === 'tabs');
+check('จำโหมดไว้', w.localStorage.getItem('d3v-term') === 'tabs');
 
 calls.length = 0; click(d.querySelector('[data-act="restart"]')); await sleep(80);
 check('รีสตาร์ท → POST /api/restart/alpha', has('POST /api/restart/alpha'), calls.join(', '));
@@ -102,6 +109,16 @@ check('บันทึก → POST /api/stack', has('POST /api/stack'), calls.jo
 
 calls.length = 0; click(d.querySelector('#refresh')); await sleep(80);
 check('ปุ่มรีเฟรช', has('GET /api/stacks'));
+
+// Menus: switch to Ports and back with a deep link.
+calls.length = 0; w.location.hash = '#/ports'; await sleep(150);
+check('สลับเมนู Ports → mount module ใหม่', d.querySelector('#view').classList.contains('m-ports') && d.querySelector('[data-route="ports"]').classList.contains('on'));
+check('Ports โหลดข้อมูลเอง', has('GET /api/stacks'));
+check('ตาราง port รวมทุก stack + port ที่เจอตอนรัน', d.querySelectorAll('.m-ports tbody tr').length === 3 && d.querySelector('.m-ports').textContent.includes(':9229'));
+check('port ถูกจับนอก nk มีปุ่มเคลียร์ ส่วนที่รันโดย nk ไม่มี', d.querySelectorAll('.m-ports [data-kill]').length === 1 && !!d.querySelector('.m-ports [data-kill="3080"]'));
+check('ปุ่ม stack ใหม่ ของ Stacks หายไปตอนอยู่เมนูอื่น', !d.querySelector('#new'));
+w.location.hash = '#/stacks/beta'; await sleep(200);
+check('deep link #/stacks/beta → กลับมาที่ Stacks และเลือก beta', d.querySelector('#view').classList.contains('m-stacks') && d.querySelector('#main h1')?.textContent.includes('beta'));
 click(d.querySelector('#theme'));
 check('สลับธีม stamp data-theme', ['dark', 'light'].includes(d.documentElement.dataset.theme));
 

@@ -1,7 +1,7 @@
-# devkit
+# D3v by terk
 
-Local dev tooling. Lives in git so scripts stop disappearing into per-session
-scratchpad directories.
+Local dev tooling: the `nk` CLI and the D3v web console on top of it. Lives in
+git so scripts stop disappearing into per-session scratchpad directories.
 
 ## nk — stack runner
 
@@ -26,9 +26,23 @@ removes the `make run` → error → `lsof -i :PORT` → `kill -9` → `make run
     nk curl -s mdm POST /api/v1/hosts/1/remote-sessions
     nk mk -s mdm remote-session HOST=1
 
-## Web dashboard
+## D3v console
 
-    nk web [port]          # default 7777
+    d3v                    # same as: nk web [port]   (default 7777)
+
+D3v is a shell with menus; each menu is one file in `web/modules/` that calls
+`D3v.register({ id, label, icon, mount(el, param), unmount, refresh, navigate })`.
+The shell owns the brand, the menu bar, theme, the refresh button, toasts, a
+hash router (`#/<menu>/<param>`) and the `1..9` keys to switch menus. Adding a
+menu is adding a file and one `<script src>` line in `web/index.html`.
+
+Menus today:
+
+- **Stacks** — the nk console: define, run, stop, watch.
+- **Ports** — every port the stacks declare or were seen using, who holds it
+  now, conflicts between stacks, and a clear button for anything held outside nk.
+
+Stacks in detail:
 
 - **Define a stack from the page**: name, a path (with a directory picker), one
   or more commands, and the ports to free first. Saved to

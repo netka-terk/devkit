@@ -6,9 +6,10 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 BIN="$HOME/.local/bin"
 
 mkdir -p "$BIN" "${XDG_CONFIG_HOME:-$HOME/.config}/nk/stacks"
-chmod +x "$ROOT/bin/nk"
+chmod +x "$ROOT/bin/nk" "$ROOT/bin/d3v"
 ln -sfn "$ROOT/bin/nk" "$BIN/nk"
-echo "✓ linked $BIN/nk -> $ROOT/bin/nk"
+ln -sfn "$ROOT/bin/d3v" "$BIN/d3v"
+echo "✓ linked $BIN/nk and $BIN/d3v"
 
 LINE=". $ROOT/completion.bash"
 if ! grep -qF "$LINE" "$HOME/.bashrc" 2>/dev/null; then
