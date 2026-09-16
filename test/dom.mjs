@@ -17,7 +17,7 @@ const stacks = [
     ports: [{ port: 3080, holder: 'stray', pid: 99 }, { port: 5000, holder: null, pid: null }, { port: 3000, holder: 'node', pid: 42 }] },
 ];
 const detail = (n) => ({ name: n, dir: `/home/u/${n[0]}`, ports: '3000', url: 'http://x', note: '',
-  envFile: '', panes: [{ label: 'app', cmd: 'make run' }], hasSudo: n === 'alpha' });
+  envFile: '', apiBase: 'http://x/api', tokenCmd: 'make tok', panes: [{ label: 'app', cmd: 'make run' }], hasSudo: n === 'alpha' });
 
 const calls = [];
 const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://localhost/',
@@ -90,6 +90,32 @@ calls.length = 0; key({ key: 'c', ctrlKey: true }); await sleep(60);
 check('Ctrl-C → C-c', w.__lastBody?.key === 'C-c', JSON.stringify(w.__lastBody));
 calls.length = 0; key({ key: 'v', ctrlKey: true }); await sleep(60);
 check('Ctrl-V ปล่อยให้ browser จัดการ (ไม่ส่ง)', !has('POST /api/send'), calls.join(', '));
+// Keys are one request each, so two in flight could land out of order: they
+// queue, and characters typed back to back travel as one string.
+calls.length = 0; for (const k of 'abc') key({ key: k }); await sleep(80);
+check('พิมพ์เร็ว → ส่งเรียงลำดับ: "a" แล้ว "bc" (ไม่ยิงพร้อมกัน)', calls.filter((c) => c.startsWith('POST /api/send')).length === 2 && w.__lastBody?.text === 'bc', `${calls.filter((c) => c.startsWith('POST /api/send')).length} calls, last=${JSON.stringify(w.__lastBody)}`);
+// A focused terminal owns its keys: arrows must not walk the stack list and
+// digits must not switch menus (typing a password with a "2" in it did).
+key({ key: 'ArrowDown' }); await sleep(60);
+check('ลูกศรใน terminal ไม่สลับ stack', d.querySelector('#main h1')?.textContent.includes('alpha'));
+key({ key: '2' }); await sleep(120);
+check('พิมพ์ตัวเลขใน terminal ไม่สลับเมนู', d.querySelector('#view').classList.contains('m-stacks'));
+// The poll every few seconds must not rebuild the terminals: focus, the
+// follow toggle and the buffer all survive, while the header still updates.
+pre.focus(); d.querySelector('[data-follow="app"]').checked = false; feed('app', 'kept\n');
+click(d.querySelector('#refresh')); await sleep(120);
+check('refresh ไม่ทำ terminal หลุดโฟกัส / ไม่สร้างกล่องใหม่', d.activeElement === pre && d.contains(pre));
+check('refresh ไม่รีเซ็ต follow และไม่ล้าง output', d.querySelector('[data-follow="app"]').checked === false && pre.textContent.includes('kept'));
+check('refresh ยังอัปเดตปุ่มบน header', !!d.querySelector('[data-act="restart"]'));
+// What a terminal shows: non-colour escapes vanish, \r overwrites the line,
+// bold keeps its colour, and a stream reset (nk up recreated the log) clears.
+feed('app', '\x1b[Kbuild\x1b]0;title\x07 10%\r20%\r30%\n\x1b[1;31mERR\x1b[0m \x1b[38;5;82mok\x1b[0m\n');
+const txt = pre.textContent;
+check('escape ที่ไม่ใช่สีถูกตัด และ \\r ทับบรรทัดเดิม', !txt.includes('\x1b') && !txt.includes('title') && txt.includes('30%') && !txt.includes('10%'), JSON.stringify(txt));
+const red = pre.querySelector('span[style*="F0716D"]');
+check('ตัวหนา+แดง ยังแดง (ไม่ถูกทับเป็นขาว) และสี 256 ใช้ได้', red?.textContent === 'ERR' && !red.getAttribute('style').includes('F2F5F8') && !!pre.querySelector('span[style*="rgb("]'), red?.getAttribute('style'));
+w.__es.onmessage({ data: JSON.stringify({ pane: 'app', reset: true }) });
+check('reset จาก stream → ล้าง pane', !pre.textContent.includes('30%'));
 
 // Drag a panel by its header: it moves on the grid, others reflow, layout saved per stack.
 const ptr = (el, type, x, y) => el.dispatchEvent(new w.MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
@@ -156,12 +182,14 @@ check('เคลียร์ → POST /api/kill/3080', has('POST /api/kill/3080'
 calls.length = 0; click(d.querySelector('[data-act="edit"]')); await sleep(120);
 check('แก้ไข เปิด dialog พร้อมค่าเดิม', d.querySelector('#editor').open && d.querySelector('#f-dir').value === '/home/u/b', `dir="${d.querySelector('#f-dir').value}"`);
 check('stack ที่หยุดอยู่ เปลี่ยนชื่อได้ (ช่องชื่อไม่ถูก disable)', !d.querySelector('#f-name').disabled);
+check('ฟอร์มมี API base / token command ของ stack', d.querySelector('#f-api').value === 'http://x/api' && d.querySelector('#f-token').value === 'make tok' && d.querySelector('#f-adv').open);
 check('ฟอร์มมีช่องรหัส sudo และซ่อนของเดิม (type=password, ไม่เติมค่ากลับ)',
   d.querySelector('#f-sudo')?.type === 'password' && d.querySelector('#f-sudo').value === '');
 check('stack ที่ยังไม่มีรหัส ไม่มีปุ่มลบรหัส', d.querySelector('#f-sudo-clear').hidden);
 d.querySelector('#f-sudo').value = 'hunter2';
 calls.length = 0; click(d.querySelector('#f-save')); await sleep(120);
 check('บันทึก → ส่งรหัสไปด้วย', w.__lastBody?.sudoPassword === 'hunter2' && w.__lastBody?.clearSudo === false, JSON.stringify({ p: w.__lastBody?.sudoPassword, c: w.__lastBody?.clearSudo }));
+check('บันทึก → apiBase/tokenCmd ไปด้วย (ไม่หายจากไฟล์ stack)', w.__lastBody?.apiBase === 'http://x/api' && w.__lastBody?.tokenCmd === 'make tok');
 click(d.querySelector('[data-select="alpha"]')); await sleep(120);
 click(d.querySelector('[data-act="edit"]')); await sleep(120);
 check('stack ที่มีรหัสอยู่แล้ว → ขึ้นว่าบันทึกไว้ + มีปุ่มลบ',

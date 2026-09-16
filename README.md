@@ -51,8 +51,11 @@ Menus today:
 Stacks in detail:
 
 - **Define a stack from the page**: name, a path (with a directory picker), one
-  or more commands, and the ports to free first. Edit, rename (while stopped)
-  and delete work on every stack alike.
+  or more commands, and the ports to free first. `NK_API_BASE` and
+  `NK_TOKEN_CMD` (what `nk curl` / `nk token` use) sit behind an "optional"
+  fold, so saving from the page keeps them. Edit, rename (while stopped) and
+  delete work on every stack alike; deleting also drops the stack's stored sudo
+  password.
 - **Run it**: up, restart, down, and freeing an individual port, over live status.
 - **Port discovery**: while a stack runs, nk walks the process tree under each
   tmux pane and asks `lsof` what it listens on. Ports that `NK_PORTS` omits show
@@ -60,9 +63,16 @@ Stacks in detail:
   `nk up` frees them first. `nk ports <stack>` and `nk status` show the same.
 - **Live terminal**: `nk up` points `tmux pipe-pane` at a file per pane, and the
   page streams those over SSE with ANSI colour, one terminal panel per pane.
-  Output is not polled. A terminal panel is also an input: focus it and
-  keystrokes go to the tmux pane through `nk send`, so a pane waiting on a
-  prompt can be answered from the page instead of stalling there.
+  Output is not polled, and when `nk up` starts a pane over the panel clears
+  with it. A terminal panel is also an input: focus it and keystrokes go to the
+  tmux pane through `nk send`, in order (they queue, and a burst of characters
+  travels as one string), so a pane waiting on a prompt can be answered from the
+  page instead of stalling there. While a terminal has focus it owns the
+  keyboard: the `1..9` menu keys and the stack list's arrows stay out of it.
+  Panes are found by the label nk gave them (a tmux pane option), not by the
+  pane title, which any program can overwrite with a title escape.
+  The poll every few seconds updates the header and the info panels in place;
+  terminals keep their focus, selection, scroll position and follow toggle.
 - **sudo without watching**: a stack whose commands call `sudo` (nksmdm builds
   with `sudo setcap`) can hold a password. It is stored in its own 0600 file
   under `~/.config/nk/secrets/`, never in the stack file, and the pane gets a
@@ -134,7 +144,7 @@ other instead of leaving a port conflict behind.
 whether the buttons are wired. `test/dom.mjs` loads the real page in jsdom,
 clicks the real buttons, and asserts the request each click should make:
 
-    npm install jsdom@24        # once, anywhere on the path
+    npm install jsdom@24        # once, anywhere on the path (node ≥ 18)
     node test/dom.mjs
 
 ## Install

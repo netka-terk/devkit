@@ -62,6 +62,19 @@
             <label for="f-env">${t('ed.env')}</label>
             <input type="text" id="f-env" class="in mono" placeholder=".env" autocomplete="off" spellcheck="false">
           </div>
+          <details class="adv" id="f-adv">
+            <summary>${t('ed.adv')}</summary>
+            <div class="field">
+              <label for="f-api">${t('ed.api')}</label>
+              <input type="text" id="f-api" class="in mono" placeholder="http://localhost:3000" autocomplete="off" spellcheck="false">
+              <div class="hint">${t('ed.api.hint')}</div>
+            </div>
+            <div class="field">
+              <label for="f-token">${t('ed.token')}</label>
+              <input type="text" id="f-token" class="in mono" placeholder="make -s admin-token" autocomplete="off" spellcheck="false">
+              <div class="hint">${t('ed.token.hint')}</div>
+            </div>
+          </details>
           <div class="field">
             <label for="f-sudo">${t('ed.sudo')}</label>
             <div class="row2">
@@ -114,6 +127,7 @@
     const s = stacks.find((x) => x.name === selected);
 
     if (!stacks.length) {
+      delete main.dataset.key;
       main.innerHTML = `<div class="welcome">
         <div class="mark">D3v</div>
         <h2>${t('st.empty.title')}</h2>
@@ -122,30 +136,28 @@
       </div>`;
       return;
     }
-    if (!s) { main.innerHTML = `<div class="welcome"><p>${t('st.pick')}</p></div>`; return; }
+    if (!s) { delete main.dataset.key; main.innerHTML = `<div class="welcome"><p>${t('st.pick')}</p></div>`; return; }
 
-    const isBusy = busy.has(s.name);
-    const act = (verb, label, icon, cls = '') =>
-      `<button class="btn ${cls}" data-act="${verb}" ${isBusy ? 'disabled' : ''}>${isBusy ? ICON.spin : icon}${label}</button>`;
-    const actions = s.running
-      ? act('restart', t('st.restart'), ICON.cycle) + act('down', t('st.stop'), ICON.stop, 'danger')
-      : act('up', t('st.run'), ICON.play, 'primary');
+    // The same stack with the same panes keeps its DOM: the terminals hold
+    // focus, selection, scroll position and the follow toggle, and a poll every
+    // few seconds must not take those away. Only the header and the info
+    // panels change, so only those are rewritten.
+    const key = `${s.name}|${(s.panes || []).map((p) => `${p.label}=${p.cmd}`).join('|')}`;
+    if (main.dataset.key === key && $('#board')) {
+      $('.d-head').innerHTML = headHtml(s);
+      patchPanels(s);
+      const wasRunning = main.dataset.running === '1';
+      main.dataset.running = s.running ? '1' : '0';
+      setLive(!!es && es.readyState === 1, s.running ? undefined : t('term.last'));
+      if (wasRunning !== s.running) paint();
+      return;
+    }
+    main.dataset.key = key;
+    main.dataset.running = s.running ? '1' : '0';
 
     main.innerHTML = `
       <section class="detail">
-        <div class="d-head">
-          <div class="d-title">
-            <h1>${esc(s.name)}
-              <span class="state ${s.running ? 'on' : ''}"><span class="dot"></span>${s.running ? t('st.running') : t('st.stopped')}</span>
-            </h1>
-            <div class="path">${esc(home(s.dir))}${s.url ? ` &nbsp;·&nbsp; <a class="link" href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)} ${ICON.ext}</a>` : ''}</div>
-          </div>
-          <div class="d-actions">
-            ${actions}
-            <button class="btn" data-act="edit">${ICON.edit}${t('st.edit')}</button>
-            <button class="icon-btn" id="drawer-btn" title="${esc(t('ui.add.panel'))}" aria-label="${esc(t('ui.add.panel'))}">${ICON.grid}</button>
-          </div>
-        </div>
+        <div class="d-head">${headHtml(s)}</div>
       </section>
       <div class="board" id="board"></div>
       <aside class="drawer" id="drawer" hidden>
@@ -159,8 +171,29 @@
       </aside>`;
 
     renderBoard(s);
-    wireDrawer(s);
+    wireDrawer();
     attachTerm(s.name);
+  }
+
+  function headHtml(s) {
+    const isBusy = busy.has(s.name);
+    const act = (verb, label, icon, cls = '') =>
+      `<button class="btn ${cls}" data-act="${verb}" ${isBusy ? 'disabled' : ''}>${isBusy ? ICON.spin : icon}${label}</button>`;
+    const actions = s.running
+      ? act('restart', t('st.restart'), ICON.cycle) + act('down', t('st.stop'), ICON.stop, 'danger')
+      : act('up', t('st.run'), ICON.play, 'primary');
+    return `
+      <div class="d-title">
+        <h1>${esc(s.name)}
+          <span class="state ${s.running ? 'on' : ''}"><span class="dot"></span>${s.running ? t('st.running') : t('st.stopped')}</span>
+        </h1>
+        <div class="path">${esc(home(s.dir))}${s.url ? ` &nbsp;·&nbsp; <a class="link" href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)} ${ICON.ext}</a>` : ''}</div>
+      </div>
+      <div class="d-actions">
+        ${actions}
+        <button class="btn" data-act="edit">${ICON.edit}${t('st.edit')}</button>
+        <button class="icon-btn" id="drawer-btn" title="${esc(t('ui.add.panel'))}" aria-label="${esc(t('ui.add.panel'))}">${ICON.grid}</button>
+      </div>`;
   }
 
   // -------------------------------------------------------------- board --
@@ -323,9 +356,11 @@
   }
   const CSS_escape = (s) => s.replace(/["\\]/g, '\\$&');
 
-  function panelHtml(s, it) {
+  const closeBtn = (it) =>
+    `<button class="gp-x" data-remove="${esc(it.id)}" title="${esc(t('ui.remove.panel'))}" aria-label="${esc(t('ui.remove.panel'))}">✕</button>`;
+
+  function panelParts(s, it) {
     const isBusy = busy.has(s.name);
-    const tools = (html) => `<span class="gp-tools">${html}</span>`;
     let title = '', body = '', cls = '', extra = '';
 
     if (it.type === 'ports') {
@@ -365,12 +400,31 @@
       body = `<pre class="term" data-pre="${esc(pane)}" tabindex="0" role="textbox"
         aria-label="${esc(t('term.input.aria', { pane }))}" title="${esc(t('term.input.hint'))}"></pre>`;
     }
+    return { title, body, cls, extra };
+  }
+
+  function panelHtml(s, it) {
+    const { title, body, cls, extra } = panelParts(s, it);
     return `<section class="gp ${cls}" data-gp="${esc(it.id)}">
-      <header class="gp-head" title="${esc(t('ui.drag.panel'))}"><span class="gp-title">${title}</span>${tools(extra +
-        `<button class="gp-x" data-remove="${esc(it.id)}" title="${esc(t('ui.remove.panel'))}" aria-label="${esc(t('ui.remove.panel'))}">✕</button>`)}</header>
+      <header class="gp-head" title="${esc(t('ui.drag.panel'))}"><span class="gp-title">${title}</span><span class="gp-tools">${extra}${closeBtn(it)}</span></header>
       <div class="gp-body">${body}</div>
       <span class="gp-resize" data-resize title="${esc(t('ui.drag'))}"></span>
     </section>`;
+  }
+
+  // patchPanels — refresh the info panels in place. Terminal panels are left
+  // alone: their content comes from the stream, and rebuilding them would
+  // drop focus and scroll position.
+  function patchPanels(s) {
+    const board = $('#board'); if (!board) return;
+    for (const it of layout) {
+      if (it.type === 'term') continue;
+      const el = board.querySelector(`[data-gp="${CSS_escape(it.id)}"]`); if (!el) continue;
+      const { title, body, extra } = panelParts(s, it);
+      el.querySelector('.gp-title').innerHTML = title;
+      el.querySelector('.gp-tools').innerHTML = extra + closeBtn(it);
+      el.querySelector('.gp-body').innerHTML = body;
+    }
   }
 
   function renderBoard(s) {
@@ -451,11 +505,13 @@
 
   // A drawer item is dragged, not clicked: pointerdown places the panel under
   // the cursor and the board's own move-drag takes over from there.
-  function wireDrawer(s) {
+  function wireDrawer() {
     const list = $('#drawer .drawer-list'); if (!list) return;
     list.addEventListener('pointerdown', (ev) => {
       const b = ev.target.closest('[data-add]'); if (!b) return;
       ev.preventDefault();
+      // The stack objects are replaced on every poll: resolve the current one.
+      const s = stacks.find((x) => x.name === selected); if (!s) return;
       const id = addPanel(s, b.dataset.add, b.dataset.pane || undefined, ev);
       if (!id) return;
       // renderBoard rebuilt the items, so pick the fresh one up by id.
@@ -537,30 +593,69 @@
     36:'#56C8D8',37:'#C8D0DA',90:'#7C8794',91:'#FF8A85',92:'#5FE3A1',93:'#FFD27A',
     94:'#82AEFF',95:'#DDB0FF',96:'#7FDCE9',97:'#F2F5F8',
   };
+  // xterm256 — the 256-colour palette: 16 ANSI, a 6×6×6 cube, then greys.
+  function xterm256(n) {
+    if (n < 8) return SGR[30 + n];
+    if (n < 16) return SGR[90 + n - 8];
+    if (n < 232) { const v = (k) => (k ? 55 + k * 40 : 0), c = n - 16; return `rgb(${v(Math.floor(c / 36))},${v(Math.floor(c / 6) % 6)},${v(c % 6)})`; }
+    const g = 8 + (n - 232) * 10; return `rgb(${g},${g},${g})`;
+  }
+
+  // plainText — what a terminal would show: CR overwrites the line, backspace
+  // eats a character, and every escape that is not colour (erase-line, cursor
+  // moves, window titles, charset designations, bells) is removed.
+  function plainText(text) {
+    return text
+      .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')            // OSC: titles, hyperlinks
+      .replace(/\x1b\[([0-9;?<=>]*)([ -\/]*)([@-~])/g, (m, a, b, f) => (f === 'm' && !b ? m : ''))
+      .replace(/\x1b[()*+\/.-][0-9A-Za-z@]/g, '')                     // charset designation
+      .replace(/\x1b[^[\]]/g, '')                                       // ESC 7, ESC =, …
+      .replace(/\x07/g, '')
+      .replace(/[^\n\x08]\x08/g, '').replace(/\x08/g, '')
+      .replace(/\r\n/g, '\n')
+      .replace(/[^\n]*\r/g, '');
+  }
+
   function ansiToHtml(text) {
     let out = '', open = false, st = {};
-    const parts = text.split(/\x1b\[([0-9;]*)m/);
+    const parts = plainText(text).split(/\x1b\[([0-9;]*)m/);
     for (let i = 0; i < parts.length; i++) {
       if (i % 2 === 0) {
         if (!parts[i]) continue;
         const body = esc(parts[i]);
         if (!open) { out += body; continue; }
-        const css = [st.color && `color:${st.color}`, st.bold && 'font-weight:500;color:#F2F5F8', st.dim && 'opacity:.6', st.ul && 'text-decoration:underline'].filter(Boolean).join(';');
+        const css = [
+          st.color && `color:${st.color}`, st.bg && `background:${st.bg}`,
+          st.bold && (st.color ? 'font-weight:500' : 'font-weight:500;color:#F2F5F8'),
+          st.dim && 'opacity:.6', st.ul && 'text-decoration:underline',
+        ].filter(Boolean).join(';');
         out += css ? `<span style="${css}">${body}</span>` : body;
       } else {
-        for (const c of (parts[i] || '0').split(';')) {
-          const n = parseInt(c || '0', 10);
-          if (n === 0) { st = {}; open = false; }
+        const codes = (parts[i] || '0').split(';').map((c) => parseInt(c || '0', 10));
+        for (let j = 0; j < codes.length; j++) {
+          const n = codes[j];
+          if (n === 38 || n === 48) {
+            // Extended colour: 38;5;<n> or 38;2;<r>;<g>;<b> (48 for background).
+            let col = null;
+            if (codes[j + 1] === 5) { col = xterm256(codes[j + 2] | 0); j += 2; }
+            else if (codes[j + 1] === 2) { col = `rgb(${codes[j + 2] | 0},${codes[j + 3] | 0},${codes[j + 4] | 0})`; j += 4; }
+            if (n === 38) st.color = col; else st.bg = col;
+            open = true;
+          }
+          else if (n === 0) { st = {}; open = false; }
           else if (n === 1) { st.bold = true; open = true; }
           else if (n === 2) { st.dim = true; open = true; }
           else if (n === 4) { st.ul = true; open = true; }
           else if (n === 22) { st.bold = st.dim = false; }
+          else if (n === 24) { st.ul = false; }
           else if (n === 39) { st.color = null; }
+          else if (n === 49) { st.bg = null; }
           else if (SGR[n]) { st.color = SGR[n]; open = true; }
+          else if ((n >= 40 && n <= 47) || (n >= 100 && n <= 107)) { st.bg = SGR[n - 10]; open = true; }
         }
       }
     }
-    return out.replace(/\r(?!\n)/g, '\n');
+    return out;
   }
 
   function attachTerm(name) {
@@ -572,6 +667,7 @@
       es.onerror = () => setLive(false, t('term.retry'));
       es.onmessage = (ev) => {
         let m; try { m = JSON.parse(ev.data); } catch { return; }
+        if (m.reset) { panes.set(m.pane, ''); paint(m.pane); return; }
         let buf = (panes.get(m.pane) || '') + m.text;
         if (buf.length > 400000) buf = buf.slice(-300000);
         panes.set(m.pane, buf);
@@ -617,10 +713,27 @@
   };
   const CTRL = { c: 'C-c', d: 'C-d', z: 'C-z', l: 'C-l', u: 'C-u' };
 
-  async function send(pane, payload) {
+  const outbox = [];
+  let sending = false;
+
+  function send(pane, payload) {
+    outbox.push({ stack: termFor, pane, ...payload });
+    pump();
+  }
+
+  async function pump() {
+    if (sending) return;
+    sending = true;
     try {
-      await api(`/api/send/${encodeURIComponent(termFor)}`, 'POST', { pane, ...payload });
-    } catch (e) { toast(t('term.input.fail'), { detail: e.message, kind: 'bad' }); }
+      while (outbox.length) {
+        const { stack, ...m } = outbox.shift();
+        while (m.text != null && outbox.length && outbox[0].stack === stack &&
+               outbox[0].pane === m.pane && outbox[0].text != null) m.text += outbox.shift().text;
+        try {
+          await api(`/api/send/${encodeURIComponent(stack)}`, 'POST', m);
+        } catch (e) { toast(t('term.input.fail'), { detail: e.message, kind: 'bad' }); }
+      }
+    } finally { sending = false; }
   }
 
   function onTermKey(ev) {
@@ -695,6 +808,9 @@
     $('#f-ports').value = stack ? (stack.ports || '') : '';
     $('#f-url').value = stack ? (stack.url || '') : '';
     $('#f-env').value = stack ? (stack.envFile || '') : '';
+    $('#f-api').value = stack ? (stack.apiBase || '') : '';
+    $('#f-token').value = stack ? (stack.tokenCmd || '') : '';
+    $('#f-adv').open = !!(stack?.apiBase || stack?.tokenCmd);
     clearSudo = false;
     $('#f-sudo').value = '';
     $('#f-sudo').placeholder = stack?.hasSudo ? t('ed.sudo.kept') : '';
@@ -754,6 +870,7 @@
         prev: editing || '',
         name: $('#f-name').value.trim(), dir: $('#f-dir').value.trim(),
         ports: $('#f-ports').value.trim(), url: $('#f-url').value.trim(), envFile: $('#f-env').value.trim(),
+        apiBase: $('#f-api').value.trim(), tokenCmd: $('#f-token').value.trim(),
         sudoPassword: $('#f-sudo').value, clearSudo,
         panes: [...$('#f-cmds').querySelectorAll('.cmdrow')].map((r) => ({
           label: r.querySelector('.lbl').value.trim(), cmd: r.querySelector('.cmd').value.trim(),
@@ -813,7 +930,7 @@
       wireEditor();
       root.addEventListener('click', onClick);
       onKey = (ev) => {
-        if (dlg.open || ev.target.matches('input')) return;
+        if (dlg.open || ev.defaultPrevented || ev.target.matches('input') || ev.target.closest('[data-pre]')) return;
         const i = stacks.findIndex((s) => s.name === selected);
         if (ev.key === 'ArrowDown' && i < stacks.length - 1) select(stacks[i + 1].name);
         if (ev.key === 'ArrowUp' && i > 0) select(stacks[i - 1].name);
@@ -835,7 +952,7 @@
       document.removeEventListener('pointermove', onBoardPointerMove);
       document.removeEventListener('pointerup', onBoardPointerUp);
       if (es) { es.close(); es = null; }
-      termFor = null; panes = new Map(); drag = null;
+      termFor = null; panes = new Map(); drag = null; outbox.length = 0;
       D3v.setActions('');
       root = null; $ = null;
     },

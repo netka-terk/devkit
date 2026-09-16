@@ -320,6 +320,11 @@
   .in:disabled { color: var(--muted); background: var(--sunken); }
   .in.mono { font-family: var(--mono); font-size: 13px; }
   .row2 { display: flex; gap: 6px; }
+  details.adv summary { cursor: pointer; font-size: 13px; color: var(--muted); list-style: none; display: flex; align-items: center; gap: 6px; }
+  details.adv summary::before { content: ''; width: 5px; height: 5px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform .12s; }
+  details.adv[open] summary::before { transform: rotate(45deg); }
+  details.adv summary:hover { color: var(--fg); }
+  details.adv .field { margin-top: 14px; }
   .row2 .in { flex: 1; }
   .cmdrow { display: grid; grid-template-columns: 118px 1fr 28px; gap: 6px; align-items: center; margin-bottom: 6px; }
   .cmdrow button { all: unset; cursor: pointer; color: var(--faint); text-align: center; height: 28px; line-height: 28px; border-radius: 6px; }
@@ -495,6 +500,12 @@ window.D3v = (() => {
     'ed.ports.hint': ['ปล่อยว่างได้ — ตอนรัน D3v จะบอกเองว่าใช้ port ไหน แล้วกด "จำไว้"', 'Optional — D3v detects ports at runtime and offers to remember them'],
     'ed.url': ['URL ที่เปิดดู (ไม่บังคับ)', 'URL to open (optional)'],
     'ed.env': ['ไฟล์ env ที่ source ก่อนรัน (ไม่บังคับ)', 'Env file to source first (optional)'],
+    'ed.adv': ['สำหรับ nk curl / nk token (ไม่บังคับ)', 'For nk curl / nk token (optional)'],
+    'ed.api': ['API base', 'API base'],
+    'ed.api.hint': ['<code>nk curl</code> ยิงไปที่นี่ — ถ้าเว้นว่างจะใช้ URL ด้านบน', '<code>nk curl</code> targets this — falls back to the URL above'],
+    'ed.token': ['คำสั่ง mint token', 'Token command'],
+    'ed.token.hint': ['รันในโฟลเดอร์ของ stack แล้วพิมพ์ token ออกมา เช่น <code>make -s admin-token</code> — <code>nk token</code> cache ให้และ mint ใหม่เมื่อใกล้หมดอายุ',
+                      'Runs in the stack folder and prints a token, e.g. <code>make -s admin-token</code> — <code>nk token</code> caches it and mints again near expiry'],
     'ed.delete': ['ลบ stack', 'Delete stack'],
     'ed.sudo': ['รหัส sudo (ไม่บังคับ)', 'sudo password (optional)'],
     'ed.sudo.hint': ['ใส่ไว้ถ้าคำสั่งของ stack เรียก <code>sudo</code> — pane จะตอบให้เอง ไม่ค้างรอพิมพ์ · เก็บเป็นไฟล์สิทธิ์ 600 แยกจากไฟล์ stack · ปลอดภัยกว่าคือเพิ่มกฎ <code>NOPASSWD</code> ใน sudoers เฉพาะคำสั่งที่ต้องใช้',
@@ -625,8 +636,10 @@ window.D3v = (() => {
   document.getElementById('lang').onclick = (ev) => { const b = ev.target.closest('[data-lang]'); if (b) setLang(b.dataset.lang); };
   applyChrome();
   document.addEventListener('keydown', (ev) => {
-    // 1..9 switch menus, unless typing.
-    if (ev.target.matches('input, textarea') || document.querySelector('dialog[open]')) return;
+    // 1..9 switch menus, unless typing — into a field, or into a terminal
+    // panel, which is a textbox in its own right and claims its keys first.
+    if (ev.defaultPrevented || ev.target.closest('input, textarea, [role="textbox"], [contenteditable]') ||
+        document.querySelector('dialog[open]')) return;
     const n = parseInt(ev.key, 10);
     if (n >= 1 && n <= mods.length && !ev.metaKey && !ev.ctrlKey) location.hash = `#/${mods[n - 1].id}`;
   });
