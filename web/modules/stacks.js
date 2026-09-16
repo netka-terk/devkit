@@ -354,7 +354,8 @@
       extra = `<span class="live"><span class="dot"></span><span class="livetext">${t('term.connecting')}</span></span>
                <label><input type="checkbox" data-follow="${esc(pane)}" checked> ${t('term.follow')}</label>
                <button class="tbtn" data-clear="${esc(pane)}" title="${esc(t('term.clear.pane'))}">${t('term.clear')}</button>`;
-      body = `<pre class="term" data-pre="${esc(pane)}"></pre>`;
+      body = `<pre class="term" data-pre="${esc(pane)}" tabindex="0" role="textbox"
+        aria-label="${esc(t('term.input.aria', { pane }))}" title="${esc(t('term.input.hint'))}"></pre>`;
     }
     return `<section class="gp ${cls}" data-gp="${esc(it.id)}">
       <header class="gp-head" title="${esc(t('ui.drag.panel'))}"><span class="gp-title">${title}</span>${tools(extra +
@@ -597,6 +598,49 @@
     }
   }
 
+  // -------------------------------------------------------------- input --
+  // A pane can stop and wait for input — sudo asks for a password, a script
+  // asks y/n — and a read-only view leaves it stuck there. Focus a terminal
+  // and keystrokes go to the tmux pane through nk send.
+  const KEYMAP = {
+    Enter: 'Enter', Tab: 'Tab', Escape: 'Escape', Backspace: 'BSpace',
+    ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right',
+    Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown',
+  };
+  const CTRL = { c: 'C-c', d: 'C-d', z: 'C-z', l: 'C-l', u: 'C-u' };
+
+  async function send(pane, payload) {
+    try {
+      await api(`/api/send/${encodeURIComponent(termFor)}`, 'POST', { pane, ...payload });
+    } catch (e) { toast(t('term.input.fail'), { detail: e.message, kind: 'bad' }); }
+  }
+
+  function onTermKey(ev) {
+    const pre = ev.target.closest('[data-pre]'); if (!pre) return;
+    const pane = pre.dataset.pre;
+    const s = stacks.find((x) => x.name === termFor);
+    if (!s?.running) return;
+
+    if (ev.ctrlKey && !ev.altKey && !ev.metaKey) {
+      const k = CTRL[ev.key.toLowerCase()];
+      // Ctrl-C with a selection is a copy, not an interrupt.
+      if (k && !(k === 'C-c' && !getSelection()?.isCollapsed)) {
+        ev.preventDefault(); return send(pane, { key: k });
+      }
+      return;                       // leave Ctrl-V, Ctrl-A and friends alone
+    }
+    if (ev.metaKey || ev.altKey) return;
+    if (KEYMAP[ev.key]) { ev.preventDefault(); return send(pane, { key: KEYMAP[ev.key] }); }
+    if (ev.key.length === 1) { ev.preventDefault(); return send(pane, { text: ev.key }); }
+  }
+
+  function onTermPaste(ev) {
+    const pre = ev.target.closest('[data-pre]'); if (!pre) return;
+    const text = ev.clipboardData?.getData('text'); if (!text) return;
+    ev.preventDefault();
+    send(pre.dataset.pre, { text });
+  }
+
   // ------------------------------------------------------------- resize --
   // The sidebar edge is the one drag outside the board.
   function wireSideGutter() {
@@ -755,6 +799,8 @@
         if (ev.key === 'ArrowUp' && i > 0) select(stacks[i - 1].name);
       };
       document.addEventListener('keydown', onKey);
+      root.addEventListener('keydown', onTermKey);
+      root.addEventListener('paste', onTermPaste);
       onResize = () => applyPositions();
       addEventListener('resize', onResize);
       timer = setInterval(() => { if (!document.hidden && !dlg.open && !drag) refresh(); }, 4000);

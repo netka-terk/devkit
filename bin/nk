@@ -426,6 +426,33 @@ EOF
   dim "    แก้ NK_PANES ให้ตรงกับโปรเจค แล้วสั่ง: nk up $name"
 }
 
+# =================================================================== send ====
+
+# cmd_send <stack> <pane> --text <s> | --key <name> — type into a running pane.
+# This is what makes the web terminal answer prompts (sudo, y/n) rather than
+# sit there while the pane waits for input nobody can give it.
+cmd_send() {
+  [ $# -ge 3 ] || die "ใช้: nk send <stack> <pane> --text <ข้อความ> | --key <ปุ่ม>"
+  local name=$1 label=$2 mode=$3 arg=${4:-} sess pid
+  nk_load "$name"
+  nk_running "$name" || die "$name ไม่ได้รันอยู่"
+  sess=$(nk_session "$name")
+  pid=$(tmux list-panes -t "=$sess" -F '#{pane_title} #{pane_id}' 2>/dev/null |
+        awk -v l="$label" '$1 == l { print $2; exit }')
+  [ -n "$pid" ] || die "ไม่มี pane ชื่อ $label ใน $name"
+  case $mode in
+    --text) [ -n "$arg" ] || return 0
+            tmux send-keys -t "$pid" -l -- "$arg" ;;
+    --key)  case $arg in
+              # A closed set: anything else would let a caller drive tmux itself.
+              Enter|Tab|Escape|BSpace|Up|Down|Left|Right|Home|End|PageUp|PageDown|C-c|C-d|C-z|C-l|C-u|Space) ;;
+              *) die "ปุ่มไม่รองรับ: $arg" ;;
+            esac
+            tmux send-keys -t "$pid" "$arg" ;;
+    *) die "ต้องเป็น --text หรือ --key" ;;
+  esac
+}
+
 # ================================================================= rename ====
 
 # cmd_rename <old> <new> — rename a stopped stack: its file and its pane logs.
@@ -475,6 +502,7 @@ ${C_B}nk${C_0} — dev stack runner (ใช้ได้กับทุกโป�
   ${C_B}nk list [-n]${C_0}           stack ทั้งหมด
   ${C_B}nk init [name]${C_0}         สร้าง stack ให้โฟลเดอร์ปัจจุบัน
   ${C_B}nk rename <เดิม> <ใหม่>${C_0}  เปลี่ยนชื่อ stack (ต้องหยุดอยู่)
+  ${C_B}nk send <stack> <pane> --text|--key${C_0}  พิมพ์เข้า pane ที่รันอยู่ (ตอบ prompt)
   ${C_B}nk web [port]${C_0}          เปิดหน้าเว็บที่ 127.0.0.1:7777 (default)
 
   ${C_B}nk token [stack] [-f]${C_0}      token จาก NK_TOKEN_CMD (cache + mint ใหม่เมื่อใกล้หมดอายุ)
@@ -510,6 +538,7 @@ case ${1:-help} in
   show)     shift; cmd_show "$@" ;;
   ports)    shift; cmd_ports "$@" ;;
   rename)   shift; cmd_rename "$@" ;;
+  send)     shift; cmd_send "$@" ;;
   help|-h|--help) cmd_help ;;
   *) die "ไม่รู้จักคำสั่ง '$1' (ดู: nk help)" ;;
 esac

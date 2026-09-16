@@ -77,6 +77,20 @@ check('stream เข้า terminal ของ pane นั้น', d.querySelecto
 click(d.querySelector('[data-clear="app"]'));
 check('ล้างเฉพาะกล่องนั้น', !d.querySelector('[data-pre="app"]')?.textContent.includes(':3000'));
 
+// Typing into a terminal goes to the tmux pane (this is how a sudo prompt gets
+// answered from the page).
+const pre = d.querySelector('[data-pre="app"]');
+const key = (init) => pre.dispatchEvent(new w.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
+check('terminal โฟกัสได้', pre.getAttribute('tabindex') === '0');
+calls.length = 0; key({ key: 'y' }); await sleep(60);
+check('พิมพ์ตัวอักษร → POST /api/send', has('POST /api/send/alpha') && w.__lastBody?.text === 'y' && w.__lastBody?.pane === 'app', JSON.stringify(w.__lastBody));
+calls.length = 0; key({ key: 'Enter' }); await sleep(60);
+check('Enter → ส่งเป็นชื่อปุ่ม', w.__lastBody?.key === 'Enter', JSON.stringify(w.__lastBody));
+calls.length = 0; key({ key: 'c', ctrlKey: true }); await sleep(60);
+check('Ctrl-C → C-c', w.__lastBody?.key === 'C-c', JSON.stringify(w.__lastBody));
+calls.length = 0; key({ key: 'v', ctrlKey: true }); await sleep(60);
+check('Ctrl-V ปล่อยให้ browser จัดการ (ไม่ส่ง)', !has('POST /api/send'), calls.join(', '));
+
 // Drag a panel by its header: it moves on the grid, others reflow, layout saved per stack.
 const ptr = (el, type, x, y) => el.dispatchEvent(new w.MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
 const gpOf = (id) => d.querySelector(`[data-gp="${id}"]`);

@@ -234,6 +234,29 @@ class Handler(BaseHTTPRequestHandler):
                     "output": (out + err).strip() or f"nk {verb} {name} เสร็จแล้ว",
                 })
 
+        if path.startswith("/api/send/"):
+            name = self.stack_from(path, "/api/send/")
+            if not name:
+                return
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(length) or b"{}")
+            except (ValueError, json.JSONDecodeError):
+                return self.send_json(400, {"error": "body ไม่ใช่ JSON"})
+            pane = str(body.get("pane", ""))
+            if not LABEL_RE.match(pane):
+                return self.send_json(400, {"error": "ชื่อ pane ไม่ถูกต้อง"})
+            if "key" in body:
+                args = ["send", name, pane, "--key", str(body["key"])]
+            else:
+                text = str(body.get("text", ""))
+                if not text or len(text) > 4096:
+                    return self.send_json(400, {"error": "ข้อความว่างหรือยาวเกินไป"})
+                args = ["send", name, pane, "--text", text]
+            rc, out, err = run_nk(args, timeout=20)
+            return self.send_json(200 if rc == 0 else 400,
+                                  {"ok": True} if rc == 0 else {"error": (err or out).strip()})
+
         if path == "/api/stack":
             try:
                 length = int(self.headers.get("Content-Length") or 0)

@@ -60,7 +60,10 @@ Stacks in detail:
   `nk up` frees them first. `nk ports <stack>` and `nk status` show the same.
 - **Live terminal**: `nk up` points `tmux pipe-pane` at a file per pane, and the
   page streams those over SSE with ANSI colour, one terminal panel per pane.
-  Output is not polled.
+  Output is not polled. A terminal panel is also an input: focus it and
+  keystrokes go to the tmux pane through `nk send`, so a pane waiting on a
+  prompt — `sudo` asking for a password, a script asking y/n — can be answered
+  from the page instead of stalling there.
 - **Board layout**: the stack page is a 12-column grid that always fills one
   screen — the row unit is derived from the space available, so the panels scale
   with the window instead of the page scrolling. Every panel (ports, commands,
@@ -86,6 +89,7 @@ copies any that are missing, once, and never overwrites.
 
     nk init [name]           # scaffold a stack for the current folder (git root if in a repo)
     nk rename old new        # rename a stopped stack (file + pane logs)
+    nk send <stack> <pane> --text "y" | --key Enter   # type into a running pane
 
 ## Stack file contract
 
