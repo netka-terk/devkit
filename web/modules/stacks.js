@@ -1,6 +1,6 @@
 // D3v · Stacks — start, stop and watch the local dev stacks (nk's core).
 (() => {
-  const { api, toast, esc, home, icons: ICON } = D3v;
+  const { api, toast, esc, home, icons: ICON, t } = D3v;
 
   let root = null, $ = null;
   let stacks = [], selected = null, pendingSelect = null;
@@ -8,59 +8,59 @@
   let timer = null, onKey = null;
 
   // ------------------------------------------------------------- markup --
-  const SHELL = `
+  const SHELL = () => `
     <div class="shell">
       <aside class="side">
-        <div class="side-head"><span>Stacks</span><span class="count" id="count"></span></div>
+        <div class="side-head"><span>${t('menu.stacks')}</span><span class="count" id="count"></span></div>
         <nav class="list" id="list" aria-label="stacks"></nav>
-        <div class="side-foot">ทุกปุ่มมีคำสั่งเทียบเท่า เช่น <code>nk up grafana</code></div>
+        <div class="side-foot">${t('st.foot')} <code>nk up grafana</code></div>
       </aside>
       <main class="main" id="main"></main>
     </div>
 
     <dialog id="editor">
       <form method="dialog">
-        <div class="dlg-head" id="dlgtitle">stack ใหม่</div>
+        <div class="dlg-head" id="dlgtitle"></div>
         <div class="dlg-body">
           <div class="field">
-            <label for="f-name">ชื่อ</label>
+            <label for="f-name">${t('ed.name')}</label>
             <input type="text" id="f-name" class="in mono" placeholder="my-api" autocomplete="off" spellcheck="false">
-            <div class="hint">ใช้เรียกใน <code>nk up &lt;ชื่อ&gt;</code> — a-z, 0-9, _ และ - · บันทึกไว้ที่ <code>~/.config/nk/stacks/</code> (user) แล้วกด "ย้ายไป project" ได้ทีหลัง</div>
+            <div class="hint">${t('ed.name.hint')}</div>
           </div>
           <div class="field">
-            <label for="f-dir">โฟลเดอร์ที่จะรัน</label>
+            <label for="f-dir">${t('ed.dir')}</label>
             <div class="row2">
               <input type="text" id="f-dir" class="in mono" placeholder="/home/terk/myproject" autocomplete="off" spellcheck="false">
-              <button type="button" class="btn" id="f-browse">เลือก…</button>
+              <button type="button" class="btn" id="f-browse">${t('ed.browse')}</button>
             </div>
             <div class="browser" id="browser" hidden></div>
           </div>
           <div class="field">
-            <label>คำสั่ง</label>
+            <label>${t('ed.cmds')}</label>
             <div id="f-cmds"></div>
-            <button type="button" class="btn sm" id="f-addcmd">+ เพิ่มคำสั่ง</button>
-            <div class="hint">แต่ละแถวเปิดเป็น pane ของตัวเองใน tmux — ซ้ายชื่อ ขวาคำสั่ง</div>
+            <button type="button" class="btn sm" id="f-addcmd">${t('ed.cmds.add')}</button>
+            <div class="hint">${t('ed.cmds.hint')}</div>
           </div>
           <div class="field">
-            <label for="f-ports">port ที่ต้องว่างก่อนรัน</label>
+            <label for="f-ports">${t('ed.ports')}</label>
             <input type="text" id="f-ports" class="in mono" placeholder="3000 8080" autocomplete="off" spellcheck="false">
-            <div class="hint">ปล่อยว่างได้ — ตอนรัน D3v จะบอกเองว่าใช้ port ไหน แล้วกด "จำไว้"</div>
+            <div class="hint">${t('ed.ports.hint')}</div>
           </div>
           <div class="field">
-            <label for="f-url">URL ที่เปิดดู (ไม่บังคับ)</label>
+            <label for="f-url">${t('ed.url')}</label>
             <input type="text" id="f-url" class="in mono" placeholder="http://localhost:3000" autocomplete="off" spellcheck="false">
           </div>
           <div class="field">
-            <label for="f-env">ไฟล์ env ที่ source ก่อนรัน (ไม่บังคับ)</label>
+            <label for="f-env">${t('ed.env')}</label>
             <input type="text" id="f-env" class="in mono" placeholder=".env" autocomplete="off" spellcheck="false">
           </div>
         </div>
         <div class="dlg-foot">
-          <button type="button" class="btn danger" id="f-delete" hidden>ลบ stack</button>
-          <button type="button" class="btn" id="f-promote" hidden title="ย้ายไฟล์นิยามไปไว้ใน <โฟลเดอร์>/.nk/ เพื่อ commit ไปกับ repo">ย้ายไป project</button>
+          <button type="button" class="btn danger" id="f-delete" hidden>${t('ed.delete')}</button>
+          <button type="button" class="btn" id="f-promote" hidden title="${esc(t('ed.promote.title'))}">${t('ed.promote')}</button>
           <span class="grow"></span>
-          <button type="button" class="btn" id="f-cancel">ยกเลิก</button>
-          <button type="button" class="btn primary" id="f-save">บันทึก</button>
+          <button type="button" class="btn" id="f-cancel">${t('ed.cancel')}</button>
+          <button type="button" class="btn primary" id="f-save">${t('ed.save')}</button>
         </div>
       </form>
     </dialog>`;
@@ -70,7 +70,7 @@
     const running = stacks.filter((s) => s.running).length;
     const held = stacks.reduce((n, s) => n + s.ports.filter((p) => p.pid != null && !s.running).length, 0);
     $('#count').textContent = stacks.length || '';
-    D3v.setActions(`<button class="btn primary" id="new">${ICON.plus} stack ใหม่</button>`);
+    D3v.setActions(`<button class="btn primary" id="new">${ICON.plus} ${t('st.new')}</button>`);
     document.getElementById('new').onclick = () => openEditor(null);
 
     $('#list').innerHTML = stacks.map((s) => {
@@ -96,28 +96,28 @@
     if (!stacks.length) {
       main.innerHTML = `<div class="welcome">
         <div class="mark">D3v</div>
-        <h2>ยังไม่มี stack</h2>
-        <p>stack คือโฟลเดอร์หนึ่ง + คำสั่งที่จะรันในนั้น กดปุ่มด้านล่างเพื่อสร้างอันแรก หรือใน terminal สั่ง <code>nk init</code> ในโปรเจคของคุณ</p>
-        <button class="btn primary" data-new>สร้าง stack แรก</button>
+        <h2>${t('st.empty.title')}</h2>
+        <p>${t('st.empty.body')}</p>
+        <button class="btn primary" data-new>${t('st.empty.cta')}</button>
       </div>`;
       return;
     }
-    if (!s) { main.innerHTML = `<div class="welcome"><p>เลือก stack จากรายการด้านซ้าย</p></div>`; return; }
+    if (!s) { main.innerHTML = `<div class="welcome"><p>${t('st.pick')}</p></div>`; return; }
 
     const isBusy = busy.has(s.name);
     const act = (verb, label, icon, cls = '') =>
       `<button class="btn ${cls}" data-act="${verb}" ${isBusy ? 'disabled' : ''}>${isBusy ? ICON.spin : icon}${label}</button>`;
     const actions = s.running
-      ? act('restart', 'รีสตาร์ท', ICON.cycle) + act('down', 'หยุด', ICON.stop, 'danger')
-      : act('up', 'รัน', ICON.play, 'primary');
+      ? act('restart', t('st.restart'), ICON.cycle) + act('down', t('st.stop'), ICON.stop, 'danger')
+      : act('up', t('st.run'), ICON.play, 'primary');
 
     const ports = s.ports.map((p) => {
       const heldByOther = p.pid != null && !s.running;
       const v = p.pid == null
-        ? `<div class="v muted">ว่าง</div>`
+        ? `<div class="v muted">${t('st.free')}</div>`
         : `<div class="v ${heldByOther ? 'held' : ''}">${esc(p.holder)} <span class="num">· pid ${p.pid}</span></div>`;
       const a = heldByOther
-        ? `<div class="a"><button class="btn sm danger" data-kill="${p.port}" ${isBusy ? 'disabled' : ''}>เคลียร์</button></div>`
+        ? `<div class="a"><button class="btn sm danger" data-kill="${p.port}" ${isBusy ? 'disabled' : ''}>${t('st.clear')}</button></div>`
         : `<div class="a"></div>`;
       return `<div class="k num">:${p.port}</div>${v}${a}`;
     }).join('');
@@ -126,39 +126,39 @@
     const extra = (s.detected || []).filter((p) => !declared.has(p.port));
     const detectedRows = extra.map((p) =>
       `<div class="k num">:${p.port}</div>
-       <div class="v">${esc(p.holder)} <span class="num">· pid ${p.pid}</span> <span class="tag auto">เจอตอนรัน</span></div>
+       <div class="v">${esc(p.holder)} <span class="num">· pid ${p.pid}</span> <span class="tag auto">${t('st.detected')}</span></div>
        <div class="a"></div>`).join('');
     const portsEmpty = !s.ports.length && !extra.length
-      ? `<div class="empty">${s.running ? 'ยังไม่พบ TCP listener ใน pane — ถ้า service เพิ่ง start รอสักครู่' : 'ไม่ได้ประกาศ port — จะรู้ตอนรันว่าใช้ port ไหน'}</div>` : '';
+      ? `<div class="empty">${s.running ? t('st.ports.none.running') : t('st.ports.none.stopped')}</div>` : '';
     const adoptBtn = extra.length
-      ? `<button class="btn sm" data-adopt ${isBusy ? 'disabled' : ''} title="บันทึก port ที่เจอลง stack — รอบหน้าจะเคลียร์ให้ก่อนรัน">จำ ${extra.length} port ที่เจอ</button>` : '';
+      ? `<button class="btn sm" data-adopt ${isBusy ? 'disabled' : ''} title="${esc(t('st.adopt.title'))}">${t('st.adopt', { n: extra.length })}</button>` : '';
 
     const panes = (s.panes || []).map((p) =>
       `<div class="k">${esc(p.label)}</div><div class="v">${esc(p.cmd)}</div><div class="a"></div>`
-    ).join('') || `<div class="empty">ไม่มีคำสั่ง</div>`;
+    ).join('') || `<div class="empty">${t('st.panes.none')}</div>`;
 
     main.innerHTML = `
       <section class="detail">
         <div class="d-head">
           <div class="d-title">
             <h1>${esc(s.name)}
-              <span class="state ${s.running ? 'on' : ''}"><span class="dot"></span>${s.running ? 'กำลังรัน' : 'หยุดอยู่'}</span>
+              <span class="state ${s.running ? 'on' : ''}"><span class="dot"></span>${s.running ? t('st.running') : t('st.stopped')}</span>
               <span class="tag">${esc(s.origin)}</span>
             </h1>
             <div class="path">${esc(home(s.dir))}${s.url ? ` &nbsp;·&nbsp; <a class="link" href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)} ${ICON.ext}</a>` : ''}</div>
           </div>
           <div class="d-actions">
             ${actions}
-            <button class="btn" data-act="edit">${ICON.edit}แก้ไข</button>
+            <button class="btn" data-act="edit">${ICON.edit}${t('st.edit')}</button>
           </div>
         </div>
         <div class="grid">
           <div class="panel">
-            <div class="p-head">Ports ${adoptBtn}</div>
+            <div class="p-head">${t('st.ports')} ${adoptBtn}</div>
             <div class="kv">${ports}${detectedRows}${portsEmpty}</div>
           </div>
           <div class="panel">
-            <div class="p-head">Panes <span class="num" style="font-weight:500">${(s.panes || []).length}</span></div>
+            <div class="p-head">${t('st.panes')} <span class="num" style="font-weight:500">${(s.panes || []).length}</span></div>
             <div class="kv">${panes}</div>
             ${s.note ? `<div class="note">${esc(s.note)}</div>` : ''}
           </div>
@@ -167,17 +167,17 @@
 
       <div class="term-wrap">
         <div class="term-bar">
-          <span class="lbl">Terminal</span>
+          <span class="lbl">${t('term.title')}</span>
           <div class="tabs" id="tabs"></div>
           <span class="grow"></span>
-          <span class="live" id="live"><span class="dot"></span><span id="livetext">กำลังต่อ…</span></span>
-          <div class="seg" id="termmode" role="group" aria-label="รูปแบบ terminal">
-            <button data-mode="tabs" title="แท็บ">${ICON.tabs}</button>
-            <button data-mode="cols" title="แยกซ้าย-ขวา">${ICON.cols}</button>
-            <button data-mode="rows" title="แยกบน-ล่าง">${ICON.rows}</button>
+          <span class="live" id="live"><span class="dot"></span><span id="livetext">${t('term.connecting')}</span></span>
+          <div class="seg" id="termmode" role="group" aria-label="terminal layout">
+            <button data-mode="tabs" title="${esc(t('term.tabs'))}">${ICON.tabs}</button>
+            <button data-mode="cols" title="${esc(t('term.cols'))}">${ICON.cols}</button>
+            <button data-mode="rows" title="${esc(t('term.rows'))}">${ICON.rows}</button>
           </div>
-          <label><input type="checkbox" id="follow" checked> follow</label>
-          <button class="tbtn" id="logclear">ล้าง</button>
+          <label><input type="checkbox" id="follow" checked> ${t('term.follow')}</label>
+          <button class="tbtn" id="logclear">${t('term.clear')}</button>
         </div>
         <div class="term-body" id="termbody"></div>
       </div>`;
@@ -198,7 +198,7 @@
       if (selected) await ensurePanes(selected);
       render();
     } catch (e) {
-      toast('โหลดรายการ stack ไม่ได้', { detail: e.message, kind: 'bad' });
+      toast(t('st.load.fail'), { detail: e.message, kind: 'bad' });
     }
   }
 
@@ -220,14 +220,14 @@
   }
 
   // ------------------------------------------------------------ actions --
-  const DONE = { up: 'รันแล้ว', down: 'หยุดแล้ว', restart: 'รีสตาร์ทแล้ว' };
+  const DONE = { up: 'st.done.up', down: 'st.done.down', restart: 'st.done.restart' };
   async function act(name, verb) {
     busy.add(name); render();
     try {
       const r = await api(`/api/${verb}/${encodeURIComponent(name)}`, 'POST');
-      toast(`${DONE[verb]} · ${name}`, { cli: `nk ${verb} ${name}`, kind: r.ok ? 'good' : 'bad', detail: r.ok ? '' : r.output });
+      toast(`${t(DONE[verb])} · ${name}`, { cli: `nk ${verb} ${name}`, kind: r.ok ? 'good' : 'bad', detail: r.ok ? '' : r.output });
     } catch (e) {
-      toast(`${verb} ${name} ไม่สำเร็จ`, { detail: e.message, kind: 'bad' });
+      toast(t('st.fail', { verb, name }), { detail: e.message, kind: 'bad' });
     } finally { busy.delete(name); await refresh(); }
   }
   async function adoptPorts(name) {
@@ -236,14 +236,14 @@
       const r = await api(`/api/adopt/${encodeURIComponent(name)}`, 'POST');
       toast(r.output, { kind: 'good', cli: `nk ports ${name}` });
       const s = stacks.find((x) => x.name === name); if (s) s.panes = undefined;
-    } catch (e) { toast('จำ port ไม่ได้', { detail: e.message, kind: 'bad' }); }
+    } catch (e) { toast(t('st.adopt.fail'), { detail: e.message, kind: 'bad' }); }
     finally { busy.delete(name); await refresh(); }
   }
   async function killPort(port) {
     try {
       const r = await api(`/api/kill/${port}`, 'POST');
-      toast(`เคลียร์ port ${port} แล้ว`, { cli: `nk kill ${port}`, kind: r.ok ? 'good' : 'bad', detail: r.ok ? '' : r.output });
-    } catch (e) { toast(`เคลียร์ port ${port} ไม่สำเร็จ`, { detail: e.message, kind: 'bad' }); }
+      toast(t('st.kill.ok', { port }), { cli: `nk kill ${port}`, kind: r.ok ? 'good' : 'bad', detail: r.ok ? '' : r.output });
+    } catch (e) { toast(t('st.kill.fail', { port }), { detail: e.message, kind: 'bad' }); }
     refresh();
   }
 
@@ -291,7 +291,7 @@
       panes = new Map(); activePane = null; termFor = name;
       es = new EventSource(`/api/stream/${encodeURIComponent(name)}`);
       es.onopen = () => setLive(true);
-      es.onerror = () => setLive(false, 'หลุด — กำลังต่อใหม่');
+      es.onerror = () => setLive(false, t('term.retry'));
       es.onmessage = (ev) => {
         let m; try { m = JSON.parse(ev.data); } catch { return; }
         const fresh = !panes.has(m.pane);
@@ -302,7 +302,7 @@
       };
     }
     const s = stacks.find((x) => x.name === name);
-    setLive(!!es && es.readyState === 1, s?.running ? undefined : 'output ครั้งล่าสุด');
+    setLive(!!es && es.readyState === 1, s?.running ? undefined : t('term.last'));
     renderTerm();
 
     $('#logclear').onclick = () => {
@@ -328,7 +328,7 @@
   function setLive(on, msg) {
     const el = $('#live'); if (!el) return;
     el.classList.toggle('on', on);
-    $('#livetext').textContent = msg ?? (on ? 'live' : 'ไม่ได้ต่อ');
+    $('#livetext').textContent = msg ?? (on ? t('term.live') : t('term.off'));
   }
 
   function renderTerm() {
@@ -346,8 +346,8 @@
       body.innerHTML = `<div class="split ${termMode}">` + names.map((n) => `
         <section class="pane" data-pane="${esc(n)}">
           <header><span>${esc(n)}</span><span class="grow"></span>
-            <button data-clear="${esc(n)}" title="ล้าง pane นี้">ล้าง</button>
-            <button data-max="${esc(n)}" title="ขยายเต็ม">⤢</button>
+            <button data-clear="${esc(n)}" title="${esc(t('term.clear.pane'))}">${t('term.clear')}</button>
+            <button data-max="${esc(n)}" title="${esc(t('term.max'))}">⤢</button>
           </header>
           <pre class="term" data-pre="${esc(n)}"></pre>
         </section>`).join('') + `</div>`;
@@ -358,7 +358,7 @@
   function paint(only) {
     const follow = $('#follow')?.checked ?? true;
     const s = stacks.find((x) => x.name === termFor);
-    const empty = () => `<div class="term-empty">${s?.running ? 'รอ output…' : `ยังไม่มี output — กด "รัน" เพื่อเริ่ม ${esc(termFor || '')}`}</div>`;
+    const empty = () => `<div class="term-empty">${s?.running ? t('term.wait') : esc(t('term.none', { name: termFor || '' }))}</div>`;
     const draw = (pre, buf) => {
       if (!pre) return;
       if (buf == null) { pre.innerHTML = empty(); return; }
@@ -379,9 +379,9 @@
     const row = document.createElement('div');
     row.className = 'cmdrow';
     row.innerHTML = `
-      <input type="text" class="in mono lbl" placeholder="ชื่อ pane" value="${esc(label)}" spellcheck="false">
-      <input type="text" class="in mono cmd" placeholder="เช่น make run" value="${esc(cmd)}" spellcheck="false">
-      <button type="button" title="ลบแถวนี้">✕</button>`;
+      <input type="text" class="in mono lbl" placeholder="${esc(t('ed.pane.ph'))}" value="${esc(label)}" spellcheck="false">
+      <input type="text" class="in mono cmd" placeholder="${esc(t('ed.cmd.ph'))}" value="${esc(cmd)}" spellcheck="false">
+      <button type="button" title="${esc(t('ed.row.rm'))}">✕</button>`;
     row.querySelector('button').onclick = () => {
       row.remove();
       if (!$('#f-cmds').children.length) $('#f-cmds').append(cmdRow());
@@ -391,7 +391,7 @@
 
   function openEditor(stack) {
     editing = stack ? stack.name : null;
-    $('#dlgtitle').textContent = stack ? `แก้ไข ${stack.name}` : 'stack ใหม่';
+    $('#dlgtitle').textContent = stack ? t('ed.title.edit', { name: stack.name }) : t('ed.title.new');
     $('#f-name').value = stack ? stack.name : '';
     $('#f-name').disabled = !!stack;
     $('#f-dir').value = stack ? stack.dir : '';
@@ -413,7 +413,7 @@
       const d = await api(`/api/stack/${encodeURIComponent(name)}`);
       if (d.error) throw new Error(d.error);
       openEditor(d);
-    } catch (e) { toast('เปิดแก้ไขไม่ได้', { detail: e.message, kind: 'bad' }); }
+    } catch (e) { toast(t('ed.open.fail'), { detail: e.message, kind: 'bad' }); }
   }
 
   async function browse(path) {
@@ -421,8 +421,8 @@
     try {
       const r = await api(`/api/browse?path=${encodeURIComponent(path)}`);
       b.innerHTML =
-        (r.parent ? `<div data-go="${esc(r.parent)}">↑ ../</div>` : '') +
-        `<div class="pick" data-pick="${esc(r.path)}">✓ ใช้โฟลเดอร์นี้ · ${esc(home(r.path))}</div>` +
+        (r.parent ? `<div data-go="${esc(r.parent)}">${t('ed.up')}</div>` : '') +
+        `<div class="pick" data-pick="${esc(r.path)}">${t('ed.pick')} ${esc(home(r.path))}</div>` +
         r.dirs.map((d) => `<div data-go="${esc(r.path.replace(/\/$/, '') + '/' + d)}">${esc(d)}/</div>`).join('');
     } catch (e) { b.innerHTML = `<div>${esc(e.message)}</div>`; }
   }
@@ -457,7 +457,7 @@
         const s = stacks.find((x) => x.name === spec.name); if (s) s.panes = undefined;
         selected = spec.name;
         await refresh();
-      } catch (e) { toast('บันทึกไม่ได้', { detail: e.message, kind: 'bad' }); }
+      } catch (e) { toast(t('ed.save.fail'), { detail: e.message, kind: 'bad' }); }
     };
     $('#f-promote').onclick = async () => {
       if (!editing) return;
@@ -465,15 +465,15 @@
         const r = await api(`/api/promote/${encodeURIComponent(editing)}`, 'POST');
         toast(r.output, { kind: 'good', cli: `nk project add ${$('#f-dir').value}` });
         dlg.close(); await refresh();
-      } catch (e) { toast('ย้ายไม่ได้', { detail: e.message, kind: 'bad' }); }
+      } catch (e) { toast(t('ed.promote.fail'), { detail: e.message, kind: 'bad' }); }
     };
     $('#f-delete').onclick = async () => {
-      if (!editing || !confirm(`ลบ stack ${editing}? ไฟล์นิยามจะถูกลบ (โค้ดในโฟลเดอร์ไม่ถูกแตะ)`)) return;
+      if (!editing || !confirm(t('ed.confirm.del', { name: editing }))) return;
       try {
         const r = await api(`/api/stack/${encodeURIComponent(editing)}`, 'DELETE');
         toast(r.output, { kind: 'good' });
         dlg.close(); selected = null; await refresh();
-      } catch (e) { toast('ลบไม่ได้', { detail: e.message, kind: 'bad' }); }
+      } catch (e) { toast(t('ed.del.fail'), { detail: e.message, kind: 'bad' }); }
     };
   }
 
@@ -489,18 +489,18 @@
     if (!btn || !selected) return;
     const verb = btn.dataset.act;
     if (verb === 'edit') return editStack(selected);
-    if (verb === 'down' && !confirm(`หยุด ${selected}?`)) return;
+    if (verb === 'down' && !confirm(t('st.confirm.stop', { name: selected }))) return;
     act(selected, verb);
   }
 
   // ------------------------------------------------------------- module --
   D3v.register({
     id: 'stacks',
-    label: 'Stacks',
+    labelKey: 'menu.stacks',
     icon: D3v.icons.stack,
     mount(el, param) {
       root = el; $ = (s) => root.querySelector(s);
-      root.innerHTML = SHELL;
+      root.innerHTML = SHELL();
       pendingSelect = param || null;
       wireEditor();
       root.addEventListener('click', onClick);

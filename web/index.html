@@ -80,6 +80,11 @@
   .icon-btn:hover { color: var(--fg); border-color: var(--line-strong); }
   .icon-btn svg { width: 16px; height: 16px; }
 
+  .lang { display: inline-flex; height: 32px; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+  .lang button { border: 0; background: var(--surface); color: var(--muted); padding: 0 10px; font: 500 12px var(--mono); letter-spacing: .04em; }
+  .lang button:hover { color: var(--fg); }
+  .lang button.on { background: var(--fg); color: var(--bg); }
+
   /* ---------------------------------------------------------------- buttons */
   .btn {
     display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px;
@@ -344,12 +349,15 @@
     <span class="mark">D3v</span>
     <small>by terk</small>
   </a>
-  <nav class="menu" id="menu" aria-label="เมนู"></nav>
+  <nav class="menu" id="menu" aria-label="menu"></nav>
   <div class="grow"></div>
-  <button class="icon-btn" id="theme" title="สลับธีม" aria-label="สลับธีม">
+  <div class="lang" id="lang" role="group">
+    <button data-lang="th">TH</button><button data-lang="en">EN</button>
+  </div>
+  <button class="icon-btn" id="theme" aria-label="theme">
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M3.4 12.6l1.3-1.3M11.3 4.7l1.3-1.3"/></svg>
   </button>
-  <button class="icon-btn" id="refresh" title="รีเฟรช" aria-label="รีเฟรช">
+  <button class="icon-btn" id="refresh" aria-label="refresh">
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.5 2.5v3h-3"/></svg>
   </button>
   <span id="actions"></span>
@@ -365,6 +373,88 @@ window.D3v = (() => {
   const mods = [];
   let mounted = null;
   let HOME = '';
+
+  // ------------------------------------------------------------- i18n --
+  // Every user-facing string on the page, both languages side by side so a
+  // missing key is obvious. Server replies (nk's own output) stay as sent.
+  const STR = {
+    'menu.stacks': ['สแต็ก', 'Stacks'],
+    'menu.ports': ['พอร์ต', 'Ports'],
+    'chrome.theme': ['สลับธีม', 'Toggle theme'],
+    'chrome.refresh': ['รีเฟรช', 'Refresh'],
+    'chrome.lang': ['เปลี่ยนภาษา', 'Switch language'],
+    'err.notjson': ['ตอบกลับไม่ใช่ JSON', 'Response was not JSON'],
+
+    'st.new': ['stack ใหม่', 'New stack'],
+    'st.foot': ['ทุกปุ่มมีคำสั่งเทียบเท่า เช่น', 'Every button has a CLI equivalent, e.g.'],
+    'st.empty.title': ['ยังไม่มี stack', 'No stacks yet'],
+    'st.empty.body': ['stack คือโฟลเดอร์หนึ่ง + คำสั่งที่จะรันในนั้น กดปุ่มด้านล่างเพื่อสร้างอันแรก หรือใน terminal สั่ง <code>nk init</code> ในโปรเจคของคุณ',
+                      'A stack is a folder plus the commands to run in it. Create the first one below, or run <code>nk init</code> inside your project.'],
+    'st.empty.cta': ['สร้าง stack แรก', 'Create the first stack'],
+    'st.pick': ['เลือก stack จากรายการด้านซ้าย', 'Pick a stack from the list'],
+    'st.run': ['รัน', 'Run'], 'st.stop': ['หยุด', 'Stop'], 'st.restart': ['รีสตาร์ท', 'Restart'], 'st.edit': ['แก้ไข', 'Edit'],
+    'st.running': ['กำลังรัน', 'Running'], 'st.stopped': ['หยุดอยู่', 'Stopped'],
+    'st.ports': ['Ports', 'Ports'], 'st.panes': ['Panes', 'Panes'],
+    'st.free': ['ว่าง', 'free'], 'st.clear': ['เคลียร์', 'Clear'],
+    'st.detected': ['เจอตอนรัน', 'seen at runtime'],
+    'st.adopt': ['จำ {n} port ที่เจอ', 'Remember {n} detected port(s)'],
+    'st.adopt.title': ['บันทึก port ที่เจอลง stack — รอบหน้าจะเคลียร์ให้ก่อนรัน', 'Save detected ports to the stack — freed before the next run'],
+    'st.ports.none.running': ['ยังไม่พบ TCP listener ใน pane — ถ้า service เพิ่ง start รอสักครู่', 'No TCP listener in the panes yet — give a fresh service a moment'],
+    'st.ports.none.stopped': ['ไม่ได้ประกาศ port — จะรู้ตอนรันว่าใช้ port ไหน', 'No ports declared — they will be detected when it runs'],
+    'st.panes.none': ['ไม่มีคำสั่ง', 'No commands'],
+    'st.done.up': ['รันแล้ว', 'Started'], 'st.done.down': ['หยุดแล้ว', 'Stopped'], 'st.done.restart': ['รีสตาร์ทแล้ว', 'Restarted'],
+    'st.fail': ['{verb} {name} ไม่สำเร็จ', '{verb} {name} failed'],
+    'st.adopt.fail': ['จำ port ไม่ได้', 'Could not save ports'],
+    'st.kill.ok': ['เคลียร์ port {port} แล้ว', 'Port {port} cleared'],
+    'st.kill.fail': ['เคลียร์ port {port} ไม่สำเร็จ', 'Could not clear port {port}'],
+    'st.load.fail': ['โหลดรายการ stack ไม่ได้', 'Could not load stacks'],
+    'st.confirm.stop': ['หยุด {name}?', 'Stop {name}?'],
+
+    'term.title': ['Terminal', 'Terminal'],
+    'term.connecting': ['กำลังต่อ…', 'connecting…'], 'term.live': ['live', 'live'], 'term.off': ['ไม่ได้ต่อ', 'disconnected'],
+    'term.retry': ['หลุด — กำลังต่อใหม่', 'dropped — reconnecting'], 'term.last': ['output ครั้งล่าสุด', 'last run'],
+    'term.follow': ['follow', 'follow'], 'term.clear': ['ล้าง', 'Clear'],
+    'term.tabs': ['แท็บ', 'Tabs'], 'term.cols': ['แยกซ้าย-ขวา', 'Side by side'], 'term.rows': ['แยกบน-ล่าง', 'Stacked'],
+    'term.clear.pane': ['ล้าง pane นี้', 'Clear this pane'], 'term.max': ['ขยายเต็ม', 'Maximise'],
+    'term.wait': ['รอ output…', 'waiting for output…'],
+    'term.none': ['ยังไม่มี output — กด "รัน" เพื่อเริ่ม {name}', 'No output yet — press "Run" to start {name}'],
+
+    'ed.title.new': ['stack ใหม่', 'New stack'], 'ed.title.edit': ['แก้ไข {name}', 'Edit {name}'],
+    'ed.name': ['ชื่อ', 'Name'],
+    'ed.name.hint': ['ใช้เรียกใน <code>nk up &lt;ชื่อ&gt;</code> — a-z, 0-9, _ และ - · บันทึกไว้ที่ <code>~/.config/nk/stacks/</code> (user) แล้วกด "ย้ายไป project" ได้ทีหลัง',
+                     'Used as <code>nk up &lt;name&gt;</code> — a-z, 0-9, _ and - · saved to <code>~/.config/nk/stacks/</code> (user); "Move to project" later if you like'],
+    'ed.dir': ['โฟลเดอร์ที่จะรัน', 'Folder to run in'], 'ed.browse': ['เลือก…', 'Browse…'],
+    'ed.cmds': ['คำสั่ง', 'Commands'], 'ed.cmds.add': ['+ เพิ่มคำสั่ง', '+ Add command'],
+    'ed.cmds.hint': ['แต่ละแถวเปิดเป็น pane ของตัวเองใน tmux — ซ้ายชื่อ ขวาคำสั่ง', 'Each row becomes its own tmux pane — label on the left, command on the right'],
+    'ed.pane.ph': ['ชื่อ pane', 'pane name'], 'ed.cmd.ph': ['เช่น make run', 'e.g. make run'], 'ed.row.rm': ['ลบแถวนี้', 'Remove row'],
+    'ed.ports': ['port ที่ต้องว่างก่อนรัน', 'Ports that must be free before running'],
+    'ed.ports.hint': ['ปล่อยว่างได้ — ตอนรัน D3v จะบอกเองว่าใช้ port ไหน แล้วกด "จำไว้"', 'Optional — D3v detects ports at runtime and offers to remember them'],
+    'ed.url': ['URL ที่เปิดดู (ไม่บังคับ)', 'URL to open (optional)'],
+    'ed.env': ['ไฟล์ env ที่ source ก่อนรัน (ไม่บังคับ)', 'Env file to source first (optional)'],
+    'ed.delete': ['ลบ stack', 'Delete stack'],
+    'ed.promote': ['ย้ายไป project', 'Move to project'],
+    'ed.promote.title': ['ย้ายไฟล์นิยามไปไว้ใน <โฟลเดอร์>/.nk/ เพื่อ commit ไปกับ repo', 'Move the definition into <folder>/.nk/ so it ships with the repo'],
+    'ed.cancel': ['ยกเลิก', 'Cancel'], 'ed.save': ['บันทึก', 'Save'],
+    'ed.up': ['↑ ../', '↑ ../'], 'ed.pick': ['✓ ใช้โฟลเดอร์นี้ ·', '✓ Use this folder ·'],
+    'ed.open.fail': ['เปิดแก้ไขไม่ได้', 'Could not open editor'], 'ed.save.fail': ['บันทึกไม่ได้', 'Could not save'],
+    'ed.del.fail': ['ลบไม่ได้', 'Could not delete'], 'ed.promote.fail': ['ย้ายไม่ได้', 'Could not move'],
+    'ed.confirm.del': ['ลบ stack {name}? ไฟล์นิยามจะถูกลบ (โค้ดในโฟลเดอร์ไม่ถูกแตะ)', 'Delete stack {name}? Only the definition file is removed; the folder is untouched.'],
+
+    'po.title': ['Ports', 'Ports'],
+    'po.inuse': ['กำลังใช้อยู่', 'in use'], 'po.held': ['ถูกจับนอก nk', 'held outside nk'],
+    'po.h.port': ['Port', 'Port'], 'po.h.stack': ['Stack', 'Stack'], 'po.h.state': ['สถานะ', 'State'], 'po.h.proc': ['Process', 'Process'],
+    'po.bynk': ['รันโดย nk', 'run by nk'],
+    'po.also': ['ประกาศด้วย {names}', 'also declared by {names}'],
+    'po.also.title': ['stack อื่นที่ประกาศ port เดียวกัน — รันพร้อมกันไม่ได้', 'Other stacks declaring the same port — they cannot run together'],
+    'po.empty': ['ไม่มี port ที่ใช้อยู่ตอนนี้', 'No ports in use right now'],
+    'po.load.fail': ['โหลด port ไม่ได้', 'Could not load ports'],
+  };
+  let lang = 'th';
+  try { lang = localStorage.getItem('d3v-lang') || ((navigator.language || '').toLowerCase().startsWith('th') ? 'th' : 'en'); } catch {}
+  const t = (key, vars = {}) => {
+    const row = STR[key]; if (!row) return key;
+    return row[lang === 'th' ? 0 : 1].replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
+  };
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
   const home = (p) => (HOME && p && p.startsWith(HOME)) ? '~' + p.slice(HOME.length) : p;
@@ -410,9 +500,31 @@ window.D3v = (() => {
     return { id, param: decodeURIComponent(rest.join('/')) };
   };
 
+  const label = (m) => m.labelKey ? t(m.labelKey) : m.label;
+
+  function applyChrome() {
+    document.documentElement.lang = lang;
+    document.getElementById('theme').title = t('chrome.theme');
+    document.getElementById('refresh').title = t('chrome.refresh');
+    const lb = document.getElementById('lang');
+    lb.title = t('chrome.lang');
+    for (const b of lb.querySelectorAll('[data-lang]')) b.classList.toggle('on', b.dataset.lang === lang);
+  }
+
+  function setLang(l) {
+    if (l === lang) return;
+    lang = l;
+    try { localStorage.setItem('d3v-lang', l); } catch {}
+    applyChrome();
+    // Remount the current menu so every string re-renders in the new language.
+    const m = mounted; const { param } = parse();
+    if (m) { m.unmount?.(); mounted = null; const v = document.getElementById('view'); v.innerHTML = ''; }
+    route(); void param;
+  }
+
   function renderNav() {
     document.getElementById('menu').innerHTML = mods.map((m, i) =>
-      `<a href="#/${m.id}" data-route="${m.id}" class="${mounted?.id === m.id ? 'on' : ''}">${m.icon || ''}<span>${esc(m.label)}</span><span class="k">${i + 1}</span></a>`
+      `<a href="#/${m.id}" data-route="${m.id}" class="${mounted?.id === m.id ? 'on' : ''}">${m.icon || ''}<span>${esc(label(m))}</span><span class="k">${i + 1}</span></a>`
     ).join('');
   }
 
@@ -428,7 +540,7 @@ window.D3v = (() => {
       document.getElementById('actions').innerHTML = '';
       mounted = m;
       m.mount(view, param);
-      document.title = `${m.label} · D3v`;
+      document.title = `${label(m)} · D3v`;
     } else {
       m.navigate?.(param);
     }
@@ -439,6 +551,8 @@ window.D3v = (() => {
 
   addEventListener('hashchange', route);
   document.getElementById('refresh').onclick = () => mounted?.refresh?.();
+  document.getElementById('lang').onclick = (ev) => { const b = ev.target.closest('[data-lang]'); if (b) setLang(b.dataset.lang); };
+  applyChrome();
   document.addEventListener('keydown', (ev) => {
     // 1..9 switch menus, unless typing.
     if (ev.target.matches('input, textarea') || document.querySelector('dialog[open]')) return;
@@ -464,7 +578,7 @@ window.D3v = (() => {
   // setActions(html) — a module puts its header-level buttons here.
   const setActions = (html) => { document.getElementById('actions').innerHTML = html; };
 
-  return { register, api, toast, esc, home, icons, setActions, get HOME() { return HOME; } };
+  return { register, api, toast, esc, home, icons, setActions, t, get lang() { return lang; }, get HOME() { return HOME; } };
 })();
 </script>
 <script src="modules/stacks.js"></script>

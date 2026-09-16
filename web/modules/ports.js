@@ -1,6 +1,6 @@
 // D3v · Ports — every port the stacks declare or were seen using, who holds it now.
 (() => {
-  const { api, toast, esc } = D3v;
+  const { api, toast, esc, t } = D3v;
   let root = null, timer = null;
 
   // rowsFrom — one row per port that is actually in use. A port declared by
@@ -28,8 +28,8 @@
   }
 
   function state(r) {
-    if (r.owner) return `<span class="st-pill good"><span class="dot"></span>รันโดย nk</span>`;
-    return `<span class="st-pill warn"><span class="dot"></span>ถูกจับนอก nk</span>`;
+    if (r.owner) return `<span class="st-pill good"><span class="dot"></span>${t('po.bynk')}</span>`;
+    return `<span class="st-pill warn"><span class="dot"></span>${t('po.held')}</span>`;
   }
 
   function render(stacks) {
@@ -38,24 +38,24 @@
 
     root.innerHTML = `
       <div class="head">
-        <h1>Ports</h1>
+        <h1>${t('po.title')}</h1>
         <div class="chips">
-          <span class="chip"><b class="num">${rows.length}</b> กำลังใช้อยู่</span>
-          ${held ? `<span class="chip warn"><b class="num">${held}</b> ถูกจับนอก nk</span>` : ''}
+          <span class="chip"><b class="num">${rows.length}</b> ${t('po.inuse')}</span>
+          ${held ? `<span class="chip warn"><b class="num">${held}</b> ${t('po.held')}</span>` : ''}
         </div>
       </div>
       <div class="panel"><div class="wrap-x"><table class="tbl">
-        <thead><tr><th>Port</th><th>Stack</th><th>สถานะ</th><th>Process</th><th></th></tr></thead>
+        <thead><tr><th>${t('po.h.port')}</th><th>${t('po.h.stack')}</th><th>${t('po.h.state')}</th><th>${t('po.h.proc')}</th><th></th></tr></thead>
         <tbody>${rows.length ? rows.map((r) => `
           <tr>
             <td class="port num">:${r.port}</td>
             <td>${r.stack ? `<a class="st" href="#/stacks/${encodeURIComponent(r.stack)}">${esc(r.stack)}</a>` : '<span style="color:var(--faint)">—</span>'}
-                ${r.kind === 'detected' ? `<span class="tag auto">เจอตอนรัน</span>` : ''}
-                ${r.others.length ? `<span class="tag" title="stack อื่นที่ประกาศ port เดียวกัน — รันพร้อมกันไม่ได้" style="margin-left:6px">ประกาศด้วย ${esc(r.others.join(', '))}</span>` : ''}</td>
+                ${r.kind === 'detected' ? `<span class="tag auto">${t('st.detected')}</span>` : ''}
+                ${r.others.length ? `<span class="tag" title="${esc(t('po.also.title'))}" style="margin-left:6px">${esc(t('po.also', { names: r.others.join(', ') }))}</span>` : ''}</td>
             <td>${state(r)}</td>
             <td class="holder">${esc(r.holder)} <span class="num">· pid ${r.pid}</span></td>
-            <td style="text-align:right">${!r.owner ? `<button class="btn sm danger" data-kill="${r.port}">เคลียร์</button>` : ''}</td>
-          </tr>`).join('') : `<tr><td colspan="5" class="empty">ไม่มี port ที่ใช้อยู่ตอนนี้</td></tr>`}
+            <td style="text-align:right">${!r.owner ? `<button class="btn sm danger" data-kill="${r.port}">${t('st.clear')}</button>` : ''}</td>
+          </tr>`).join('') : `<tr><td colspan="5" class="empty">${t('po.empty')}</td></tr>`}
         </tbody>
       </table></div></div>`;
   }
@@ -63,7 +63,7 @@
   async function refresh() {
     if (!root) return;
     try { render(await api('/api/stacks')); }
-    catch (e) { toast('โหลด port ไม่ได้', { detail: e.message, kind: 'bad' }); }
+    catch (e) { toast(t('po.load.fail'), { detail: e.message, kind: 'bad' }); }
   }
 
   async function onClick(ev) {
@@ -71,14 +71,14 @@
     const port = k.dataset.kill;
     try {
       const r = await api(`/api/kill/${port}`, 'POST');
-      toast(`เคลียร์ port ${port} แล้ว`, { cli: `nk kill ${port}`, kind: r.ok ? 'good' : 'bad', detail: r.ok ? '' : r.output });
-    } catch (e) { toast(`เคลียร์ port ${port} ไม่สำเร็จ`, { detail: e.message, kind: 'bad' }); }
+      toast(t('st.kill.ok', { port }), { cli: `nk kill ${port}`, kind: r.ok ? 'good' : 'bad', detail: r.ok ? '' : r.output });
+    } catch (e) { toast(t('st.kill.fail', { port }), { detail: e.message, kind: 'bad' }); }
     refresh();
   }
 
   D3v.register({
     id: 'ports',
-    label: 'Ports',
+    labelKey: 'menu.ports',
     icon: D3v.icons.port,
     mount(el) {
       root = el;

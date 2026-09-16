@@ -33,6 +33,7 @@ const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true
     w.EventSource = class { constructor(u) { calls.push(`SSE ${u}`); this.readyState = 1; w.__es = this; } close() {} };
     w.confirm = () => true;
     w.matchMedia = () => ({ matches: false });
+    w.localStorage.setItem('d3v-lang', 'th');   // jsdom reports en-US; the page's Thai strings are what the checks read
     w.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
     w.HTMLDialogElement.prototype.close = function () { this.open = false; };
   },
@@ -48,7 +49,8 @@ for (const src of modules) w.eval(src);
 await sleep(200);
 check('shell มีเมนู 2 อัน', d.querySelectorAll('#menu [data-route]').length === 2);
 check('เมนูแรก (Stacks) ถูก mount และ active', d.querySelector('#view').classList.contains('m-stacks') && d.querySelector('[data-route="stacks"]').classList.contains('on'));
-check('title เป็นชื่อโปรแกรม', d.title === 'Stacks · D3v', d.title);
+check('title เป็นชื่อโปรแกรม', d.title === 'สแต็ก · D3v', d.title);
+check('เมนูเป็นไทยตามภาษาที่เลือก', d.querySelector('[data-route="stacks"]').textContent.includes('สแต็ก'));
 check('โหลดรายการตอนเปิด', has('GET /api/stacks'));
 check('sidebar มี 2 stack', d.querySelectorAll('[data-select]').length === 2);
 check('เลือกตัวแรกให้เองและเปิด terminal stream', has('SSE /api/stream/alpha'));
@@ -131,6 +133,15 @@ w.location.hash = '#/stacks/beta'; await sleep(200);
 check('deep link #/stacks/beta → กลับมาที่ Stacks และเลือก beta', d.querySelector('#view').classList.contains('m-stacks') && d.querySelector('#main h1')?.textContent.includes('beta'));
 click(d.querySelector('#theme'));
 check('สลับธีม stamp data-theme', ['dark', 'light'].includes(d.documentElement.dataset.theme));
+
+// Language: EN re-renders menu, chrome and the mounted module; TH restores it.
+click(d.querySelector('[data-lang="en"]')); await sleep(200);
+check('EN → เมนู title และปุ่มในหน้าเปลี่ยนภาษา', d.querySelector('[data-route="stacks"]').textContent.includes('Stacks') && d.title === 'Stacks · D3v' && d.querySelector('#main [data-act]')?.textContent.trim().match(/^(Run|Restart)$/), `${d.title} / ${d.querySelector('#main [data-act]')?.textContent}`);
+check('EN → lang attr และปุ่มภาษา active', d.documentElement.lang === 'en' && d.querySelector('[data-lang="en"]').classList.contains('on'));
+check('EN จำไว้', w.localStorage.getItem('d3v-lang') === 'en');
+click(d.querySelector('[data-lang="th"]')); await sleep(200);
+check('TH → กลับเป็นไทย', d.querySelector('[data-route="stacks"]').textContent.includes('สแต็ก') && d.querySelector('#main [data-act]')?.textContent.trim().match(/^(รัน|รีสตาร์ท)$/));
+check('ไม่มี string ไทยตกค้างในโค้ด module (ต้องผ่าน t())', !/[\u0e00-\u0e7f]/.test(modules.join('')));
 
 console.log(fail ? `\n${fail} ข้อไม่ผ่าน` : '\nผ่านทั้งหมด');
 process.exit(fail ? 1 : 0);

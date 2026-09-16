@@ -32,9 +32,15 @@ removes the `make run` → error → `lsof -i :PORT` → `kill -9` → `make run
 
 D3v is a shell with menus; each menu is one file in `web/modules/` that calls
 `D3v.register({ id, label, icon, mount(el, param), unmount, refresh, navigate })`.
-The shell owns the brand, the menu bar, theme, the refresh button, toasts, a
-hash router (`#/<menu>/<param>`) and the `1..9` keys to switch menus. Adding a
-menu is adding a file and one `<script src>` line in `web/index.html`.
+The shell owns the brand, the menu bar, theme, language (TH/EN, remembered),
+the refresh button, toasts, a hash router (`#/<menu>/<param>`) and the `1..9`
+keys to switch menus. Adding a menu is adding a file and one `<script src>`
+line in `web/index.html`.
+
+Strings go through `D3v.t('key', vars)`; the dictionary in the shell holds Thai
+and English side by side, and a module's `labelKey` names its menu entry.
+Switching language remounts the current menu, so nothing needs its own
+re-render logic. Replies from `nk` itself are shown as sent (Thai).
 
 Menus today:
 
