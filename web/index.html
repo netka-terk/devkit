@@ -230,6 +230,36 @@
   .gp-title .mono { text-transform: none; letter-spacing: 0; font-size: 12.5px; font-weight: 500; color: var(--fg); }
   .gp-tools { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; font-weight: 500; }
   .gp-tools label { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); cursor: pointer; }
+  .gp-x { all: unset; cursor: pointer; color: var(--faint); padding: 2px 5px; border-radius: 5px; font-size: 12px; line-height: 1; }
+  .gp-x:hover { color: var(--bad); background: var(--bad-soft); }
+  .gp.term .gp-x:hover { background: #2A1A1A; }
+
+  /* ---------------------------------------------------------------- drawer */
+  .drawer {
+    position: absolute; top: 0; right: 0; bottom: 0; width: 290px; z-index: 8;
+    background: var(--surface); border-left: 1px solid var(--line);
+    display: flex; flex-direction: column; box-shadow: var(--shadow);
+  }
+  .drawer-head {
+    display: flex; align-items: center; padding: 12px 10px 12px 16px; flex: none;
+    border-bottom: 1px solid var(--line); font-size: 11px; font-weight: 600;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+  }
+  .drawer-head .icon-btn { margin-left: auto; width: 26px; height: 26px; font-size: 12px; }
+  .drawer-hint { padding: 12px 16px 6px; color: var(--muted); font-size: 12.5px; }
+  .drawer-list { overflow: auto; padding: 6px 10px 14px; display: flex; flex-direction: column; gap: 6px; }
+  .dr-item {
+    display: flex; align-items: flex-start; gap: 10px; width: 100%; text-align: left;
+    padding: 10px; border-radius: var(--r); border: 1px solid var(--line);
+    background: var(--raised); color: var(--fg); cursor: grab; touch-action: none;
+  }
+  .dr-item:hover { border-color: var(--accent); }
+  .dr-item:active { cursor: grabbing; }
+  .dr-ico { color: var(--muted); display: grid; place-items: center; width: 18px; height: 18px; flex: none; margin-top: 1px; }
+  .dr-ico svg { width: 16px; height: 16px; }
+  .dr-txt { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .dr-txt b { font-weight: 500; font-size: 13.5px; }
+  .dr-txt small { color: var(--muted); font-size: 12px; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .gp-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
   .gp-body .kv { align-content: start; }
   .gp-resize {
@@ -346,6 +376,7 @@
     .menu a { padding: 0 10px; }
     .m-stacks .shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
     .m-stacks #side-gutter { display: none; }
+    .drawer { width: 100%; }
     .main { overflow: auto; }
     .board { margin: 0 16px 16px; flex: none; display: flex; flex-direction: column; gap: 12px; }
     .gp { position: static !important; width: auto !important; height: 260px !important; }
@@ -426,7 +457,12 @@ window.D3v = (() => {
     'st.confirm.stop': ['หยุด {name}?', 'Stop {name}?'],
     'ui.drag': ['ลากเพื่อปรับขนาด · ดับเบิลคลิกเพื่อคืนค่าเดิม', 'Drag to resize · double-click to reset'],
     'ui.drag.panel': ['ลากเพื่อย้ายกล่อง', 'Drag to move this panel'],
-    'ui.layout.reset': ['จัดเรียงกล่องใหม่ตามค่าเริ่มต้น', 'Reset panel layout'],
+    'ui.add.panel': ['เพิ่มกล่อง', 'Add panel'],
+    'ui.add.hint': ['ลากรายการออกไปวางบน board', 'Drag an item onto the board'],
+    'ui.remove.panel': ['เอากล่องนี้ออก', 'Remove this panel'],
+    'ui.cat.ports': ['port ที่ประกาศไว้และที่เจอตอนรัน', 'Declared and detected ports'],
+    'ui.cat.panes': ['คำสั่งของแต่ละ pane', 'The command behind each pane'],
+    'ui.cat.term': ['terminal · {pane}', 'Terminal · {pane}'],
     'st.port.busy': ['port {port} ถูกใช้อยู่โดย {holder} (pid {pid})', 'Port {port} is in use by {holder} (pid {pid})'],
     'st.port.busy.by': ['— {stack} กำลังรัน ถ้ารัน {me} จะหยุด {stack} ก่อน', '— {stack} is running; running {me} will stop {stack} first'],
     'st.port.busy.ext': ['— ไม่ได้รันผ่าน nk ถ้ารัน {me} จะปิด process นั้นก่อน', '— not started by nk; running {me} will close that process first'],
@@ -511,6 +547,8 @@ window.D3v = (() => {
     tabs: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3.5" width="12" height="10" rx="1.5"/><path d="M2 6.5h12M6 3.5v3"/></svg>',
     cols: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M8 3v10"/></svg>',
     rows: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M2 8h12"/></svg>',
+    list: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5.5 4h8M5.5 8h8M5.5 12h8M2.5 4h.01M2.5 8h.01M2.5 12h.01"/></svg>',
+    term: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M4.8 6.5L6.8 8l-2 1.5M8.5 10h3"/></svg>',
     grid: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg>',
     stack: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 5.5L8 2.5l5.5 3L8 8.5z"/><path d="M2.5 8.5L8 11.5l5.5-3M2.5 11.5L8 14.5l5.5-3"/></svg>',
     port: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="4.5" width="11" height="7" rx="1.5"/><path d="M5.5 7.5v1M8 7.5v1M10.5 7.5v1"/></svg>',

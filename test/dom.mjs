@@ -82,18 +82,32 @@ const ptr = (el, type, x, y) => el.dispatchEvent(new w.MouseEvent(type, { bubble
 const gpOf = (id) => d.querySelector(`[data-gp="${id}"]`);
 const before = gpOf('panes').style.top;
 ptr(gpOf('ports').querySelector('.gp-head'), 'pointerdown', 0, 0); ptr(d, 'pointermove', 0, 400); ptr(d, 'pointerup', 0, 400);
-const lay = JSON.parse(w.localStorage.getItem('d3v-layout:alpha') || '{}');
+const saved = () => Object.fromEntries((JSON.parse(w.localStorage.getItem('d3v-layout:alpha') || '[]')).map((p) => [p.id, p]));
+const lay = saved();
 check('ลากกล่อง Ports ลง → ตำแหน่งเปลี่ยนและถูกจำต่อ stack', lay.ports && lay.ports.y > 0, JSON.stringify(lay.ports));
 check('กล่องอื่นขยับหลบ (Panes ลอยขึ้นไปแทนที่)', lay.panes && lay.panes.y === 0 && gpOf('panes').style.top !== undefined && before !== null);
 ptr(gpOf('panes').querySelector('[data-resize]'), 'pointerdown', 0, 0); ptr(d, 'pointermove', 300, 200); ptr(d, 'pointerup', 300, 200);
-const lay2 = JSON.parse(w.localStorage.getItem('d3v-layout:alpha') || '{}');
+const lay2 = saved();
 check('ลากมุมกล่อง → ขนาดเปลี่ยน', lay2.panes && (lay2.panes.w > lay.panes.w || lay2.panes.h > lay.panes.h), JSON.stringify(lay2.panes));
 check('ปุ่มบน header ไม่เริ่มลาก', (() => { ptr(gpOf('term:app').querySelector('[data-clear]'), 'pointerdown', 0, 0); const ok = !d.querySelector('.gp.moving'); ptr(d, 'pointerup', 0, 0); return ok; })());
-click(d.querySelector('[data-layout-reset]'));
-check('จัดเรียงใหม่ → ลบ layout ที่จำไว้', w.localStorage.getItem('d3v-layout:alpha') === null);
+// Drawer: a catalogue you drag panels out of.
+check('ยังไม่กด — drawer ปิดอยู่', d.querySelector('#drawer').hidden);
+click(d.querySelector('#drawer-btn'));
+check('กดปุ่ม → drawer เปิด พร้อมรายการ Ports/Panes/terminal', !d.querySelector('#drawer').hidden && d.querySelectorAll('.dr-item').length === 3);
+const nPanels = d.querySelectorAll('#board .gp').length;
+ptr(d.querySelector('[data-add="term"]'), 'pointerdown', 500, 200); ptr(d, 'pointerup', 500, 200);
+check('ลาก terminal ออกมา → ได้กล่องใหม่ (ซ้ำ pane เดิมได้)', d.querySelectorAll('#board .gp').length === nPanels + 1 && !!d.querySelector('[data-gp="term:app#2"]'));
+check('วางแล้ว drawer ปิดเอง', d.querySelector('#drawer').hidden);
+check('กล่องใหม่ถูกบันทึกลง layout', !!saved()['term:app#2']);
+click(gpOf('term:app#2').querySelector('[data-remove]'));
+check('กด ✕ → กล่องหายและ layout ถูกอัปเดต', !d.querySelector('[data-gp="term:app#2"]') && !saved()['term:app#2']);
 
 // One screen: the board must size rows from the space it is given, not from a
 // fixed pixel row. jsdom reports no layout, so the board's height is stubbed.
+// Start from the default layout — the drags above left a deliberately tall one.
+w.localStorage.removeItem('d3v-layout:alpha');
+click(d.querySelector('[data-select="beta"]')); await sleep(120);
+click(d.querySelector('[data-select="alpha"]')); await sleep(120);
 const board = d.querySelector('#board');
 Object.defineProperty(board, 'clientHeight', { value: 600, configurable: true });
 Object.defineProperty(board, 'clientWidth', { value: 1200, configurable: true });

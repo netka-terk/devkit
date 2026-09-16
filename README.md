@@ -65,9 +65,12 @@ Stacks in detail:
   screen — the row unit is derived from the space available, so the panels scale
   with the window instead of the page scrolling. Every panel (ports, commands,
   each pane's terminal) drags by its header and resizes from its corner,
-  neighbours reflow around it, and the layout is remembered per stack. The grid
-  button in the header resets it. Only when rows would fall below a readable
-  minimum does the board scroll instead.
+  neighbours reflow around it, and the layout is remembered per stack. The panel
+  drawer in the header holds the catalogue — ports, commands, a terminal for
+  each pane — and an item is dragged out of it onto the board; the same kind can
+  be added more than once (a second view of one terminal), and each panel's ✕
+  removes it. Only when rows would fall below a readable minimum does the board
+  scroll instead.
 
 Loopback only: the endpoints start and stop processes, there is no auth, and it
 must not be exposed. Stacks resolve from the directory `nk web` was started in,

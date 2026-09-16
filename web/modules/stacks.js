@@ -135,13 +135,23 @@
           <div class="d-actions">
             ${actions}
             <button class="btn" data-act="edit">${ICON.edit}${t('st.edit')}</button>
-            <button class="icon-btn" data-layout-reset title="${esc(t('ui.layout.reset'))}" aria-label="${esc(t('ui.layout.reset'))}">${ICON.grid}</button>
+            <button class="icon-btn" id="drawer-btn" title="${esc(t('ui.add.panel'))}" aria-label="${esc(t('ui.add.panel'))}">${ICON.grid}</button>
           </div>
         </div>
       </section>
-      <div class="board" id="board"></div>`;
+      <div class="board" id="board"></div>
+      <aside class="drawer" id="drawer" hidden>
+        <div class="drawer-head">${t('ui.add.panel')}<button class="icon-btn sm" id="drawer-close" aria-label="${esc(t('ed.cancel'))}">✕</button></div>
+        <div class="drawer-hint">${t('ui.add.hint')}</div>
+        <div class="drawer-list">${catalog(s).map((c) => `
+          <button class="dr-item" data-add="${esc(c.type)}" data-pane="${esc(c.pane || '')}">
+            <span class="dr-ico">${c.icon}</span>
+            <span class="dr-txt"><b>${esc(c.label)}</b><small>${esc(c.desc)}</small></span>
+          </button>`).join('')}</div>
+      </aside>`;
 
     renderBoard(s);
+    wireDrawer(s);
     attachTerm(s.name);
   }
 
@@ -159,19 +169,43 @@
 
   // defaultLayout — ports and commands on top, one terminal per pane below,
   // two terminals per row when there are several.
+  // catalog — the panels a board can hold. The drawer lists these; the board
+  // holds instances of them, so the same kind can appear more than once (a
+  // second view of one terminal, say).
+  function catalog(s) {
+    return [
+      { type: 'ports', label: t('st.ports'), desc: t('ui.cat.ports'), icon: ICON.port, w: 6, h: 4, minW: 3, minH: 3 },
+      { type: 'panes', label: t('st.panes'), desc: t('ui.cat.panes'), icon: ICON.list, w: 6, h: 4, minW: 3, minH: 3 },
+      ...(s.panes || []).map((p) => ({
+        type: 'term', pane: p.label, label: t('ui.cat.term', { pane: p.label }),
+        desc: p.cmd, icon: ICON.term, w: 6, h: 8, minW: 3, minH: 3,
+      })),
+    ];
+  }
+
+  const specOf = (s, type, pane) =>
+    catalog(s).find((c) => c.type === type && (type !== 'term' || c.pane === pane));
+
+  // uid — a readable instance id, suffixed when the same panel is added twice.
+  function uid(type, pane) {
+    const base = type === 'term' ? `term:${pane}` : type;
+    if (!layout.some((it) => it.id === base)) return base;
+    for (let n = 2; ; n++) if (!layout.some((it) => it.id === `${base}#${n}`)) return `${base}#${n}`;
+  }
+
   // Rows are relative, not pixels: the board scales whatever total it gets to
   // the viewport. Info panels take a quarter of the height, terminals the rest.
   function defaultLayout(s) {
     const items = [
-      { id: 'ports', x: 0, y: 0, w: 6, h: 4, minW: 3, minH: 3 },
-      { id: 'panes', x: 6, y: 0, w: 6, h: 4, minW: 3, minH: 3 },
+      { id: 'ports', type: 'ports', x: 0, y: 0, w: 6, h: 4, minW: 3, minH: 3 },
+      { id: 'panes', type: 'panes', x: 6, y: 0, w: 6, h: 4, minW: 3, minH: 3 },
     ];
     const names = (s.panes || []).map((p) => p.label);
     const rows = Math.max(1, Math.ceil(names.length / 2));
     const two = names.length >= 2;
     const h = Math.max(4, Math.round(12 / rows));
     names.forEach((n, i) => items.push({
-      id: `term:${n}`, minW: 3, minH: 3,
+      id: `term:${n}`, type: 'term', pane: n, minW: 3, minH: 3,
       w: two ? 6 : 12, h,
       x: two ? (i % 2) * 6 : 0,
       y: 4 + (two ? Math.floor(i / 2) : i) * h,
@@ -180,20 +214,55 @@
   }
 
   function loadLayout(s) {
-    const items = defaultLayout(s);
     let sv = null;
     try { sv = JSON.parse(saved(layoutKey(s.name)) || 'null'); } catch {}
-    if (sv) for (const it of items) {
-      const p = sv[it.id];
-      if (p) { it.x = clamp(p.x | 0, 0, COLS - 1); it.w = clamp(p.w | 0, it.minW, COLS - it.x); it.y = Math.max(0, p.y | 0); it.h = Math.max(it.minH, p.h | 0); }
+    if (!Array.isArray(sv)) return compact(defaultLayout(s), null);
+    const items = [];
+    for (const p of sv) {
+      const spec = specOf(s, p.type, p.pane);
+      if (!spec) continue;               // a pane that no longer exists
+      const x = clamp(p.x | 0, 0, COLS - 1);
+      items.push({
+        id: p.id || `${p.type}${p.pane ? ':' + p.pane : ''}`, type: p.type, pane: p.pane,
+        minW: spec.minW, minH: spec.minH,
+        x, w: clamp(p.w | 0, spec.minW, COLS - x),
+        y: Math.max(0, p.y | 0), h: Math.max(spec.minH, p.h | 0),
+      });
     }
-    return compact(items, null);
+    return items.length ? compact(items, null) : compact(defaultLayout(s), null);
   }
 
   function saveLayout() {
-    const o = {};
-    for (const it of layout) o[it.id] = { x: it.x, y: it.y, w: it.w, h: it.h };
-    store(layoutKey(selected), JSON.stringify(o));
+    store(layoutKey(selected), JSON.stringify(layout.map(
+      ({ id, type, pane, x, y, w, h }) => ({ id, type, pane, x, y, w, h }))));
+  }
+
+  function removePanel(id) {
+    layout = layout.filter((it) => it.id !== id);
+    saveLayout();
+    renderBoard(stacks.find((x) => x.name === selected));
+    attachTerm(selected);
+  }
+
+  // addPanel — drop a catalogue entry onto the board at a pointer position,
+  // then hand it straight to the move-drag so it can be placed by hand.
+  function addPanel(s, type, pane, ev) {
+    const spec = specOf(s, type, pane); if (!spec) return;
+    const board = $('#board');
+    const r = board.getBoundingClientRect();
+    const colW = (board.clientWidth || 1200) / COLS;
+    const rowU = rowH + GAP;
+    const x = clamp(Math.round(((ev?.clientX ?? 0) - r.left) / colW - spec.w / 2), 0, COLS - spec.w);
+    const y = Math.max(0, Math.round(((ev?.clientY ?? 0) - r.top) / rowU));
+    const it = { id: uid(type, pane), type, pane, x, y, w: spec.w, h: spec.h, minW: spec.minW, minH: spec.minH };
+    layout.push(it);
+    compact(layout, it);
+    // renderBoard reloads the layout from storage, so persist before rendering.
+    saveLayout();
+    closeDrawer();
+    renderBoard(s);
+    attachTerm(selected);
+    return it.id;
   }
 
   const collides = (a, b) => a !== b && a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
@@ -251,7 +320,7 @@
     const tools = (html) => `<span class="gp-tools">${html}</span>`;
     let title = '', body = '', cls = '', extra = '';
 
-    if (it.id === 'ports') {
+    if (it.type === 'ports') {
       title = t('st.ports');
       const ports = s.ports.map((p) => {
         const heldByOther = p.pid != null && !s.running;
@@ -274,12 +343,12 @@
       extra = extraPorts.length
         ? `<button class="btn sm" data-adopt ${isBusy ? 'disabled' : ''} title="${esc(t('st.adopt.title'))}">${t('st.adopt', { n: extraPorts.length })}</button>` : '';
       body = `<div class="kv">${ports}${detectedRows}${empty}</div>`;
-    } else if (it.id === 'panes') {
+    } else if (it.type === 'panes') {
       title = `${t('st.panes')} <span class="num" style="font-weight:500">${(s.panes || []).length}</span>`;
       body = `<div class="kv">${(s.panes || []).map((p) =>
         `<div class="k">${esc(p.label)}</div><div class="v">${esc(p.cmd)}</div><div class="a"></div>`).join('') || `<div class="empty">${t('st.panes.none')}</div>`}</div>`;
     } else {
-      const pane = it.id.slice(5);
+      const pane = it.pane;
       cls = 'term';
       title = `<span class="mono">${esc(pane)}</span>`;
       extra = `<span class="live"><span class="dot"></span><span class="livetext">${t('term.connecting')}</span></span>
@@ -288,7 +357,8 @@
       body = `<pre class="term" data-pre="${esc(pane)}"></pre>`;
     }
     return `<section class="gp ${cls}" data-gp="${esc(it.id)}">
-      <header class="gp-head" title="${esc(t('ui.drag.panel'))}"><span class="gp-title">${title}</span>${tools(extra)}</header>
+      <header class="gp-head" title="${esc(t('ui.drag.panel'))}"><span class="gp-title">${title}</span>${tools(extra +
+        `<button class="gp-x" data-remove="${esc(it.id)}" title="${esc(t('ui.remove.panel'))}" aria-label="${esc(t('ui.remove.panel'))}">✕</button>`)}</header>
       <div class="gp-body">${body}</div>
       <span class="gp-resize" data-resize title="${esc(t('ui.drag'))}"></span>
     </section>`;
@@ -316,9 +386,13 @@
     if (!resize && (!head || ev.target.closest('button, input, a, label'))) return;
     const item = layout.find((it) => it.id === gp.dataset.gp); if (!item) return;
     ev.preventDefault();
+    startDrag(resize ? 'resize' : 'move', item, gp, ev);
+  }
+
+  function startDrag(kind, item, gp, ev) {
     const board = $('#board');
     drag = {
-      kind: resize ? 'resize' : 'move', item, el: gp,
+      kind, item, el: gp,
       x0: ev.clientX, y0: ev.clientY, orig: { ...item },
       colW: (board.clientWidth || 1200) / COLS, rowU: rowH + GAP,
       px: { left: gp.offsetLeft, top: gp.offsetTop, w: gp.offsetWidth, h: gp.offsetHeight },
@@ -363,7 +437,24 @@
     saveLayout();
   }
 
-  function resetLayout() { store(layoutKey(selected), null); render(); }
+  function openDrawer() { const d = $('#drawer'); if (d) d.hidden = false; }
+  function closeDrawer() { const d = $('#drawer'); if (d) d.hidden = true; }
+
+  // A drawer item is dragged, not clicked: pointerdown places the panel under
+  // the cursor and the board's own move-drag takes over from there.
+  function wireDrawer(s) {
+    const list = $('#drawer .drawer-list'); if (!list) return;
+    list.addEventListener('pointerdown', (ev) => {
+      const b = ev.target.closest('[data-add]'); if (!b) return;
+      ev.preventDefault();
+      const id = addPanel(s, b.dataset.add, b.dataset.pane || undefined, ev);
+      if (!id) return;
+      // renderBoard rebuilt the items, so pick the fresh one up by id.
+      const it = layout.find((x) => x.id === id);
+      const el = $('#board').querySelector(`[data-gp="${CSS_escape(id)}"]`);
+      if (it && el) startDrag('move', it, el, ev);
+    });
+  }
 
   // ------------------------------------------------------------ refresh --
   async function refresh() {
@@ -628,7 +719,10 @@
     const sel = ev.target.closest('[data-select]');
     if (sel) return select(sel.dataset.select);
     if (ev.target.closest('[data-new]')) return openEditor(null);
-    if (ev.target.closest('[data-layout-reset]')) return resetLayout();
+    if (ev.target.closest('#drawer-btn')) return $('#drawer').hidden ? openDrawer() : closeDrawer();
+    if (ev.target.closest('#drawer-close')) return closeDrawer();
+    const rm = ev.target.closest('[data-remove]');
+    if (rm) return removePanel(rm.dataset.remove);
     const clear = ev.target.closest('[data-clear]');
     if (clear) { panes.set(clear.dataset.clear, ''); return paint(clear.dataset.clear); }
     const kill = ev.target.closest('[data-kill]');
