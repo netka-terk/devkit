@@ -86,10 +86,21 @@ nk_session() { printf '%s%s' "$NK_PREFIX" "$1"; }
 nk_port_pids() {
   local port=$1 pids
   pids=$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
-  if [ -z "$pids" ] && command -v sudo >/dev/null; then
+  # lsof only sees our own processes. Before asking sudo, check with ss whether
+  # anything is bound at all: `nk status` runs this for every declared port
+  # every few seconds, and a `sudo -n` that fails writes to the auth log each
+  # time. A free port never reaches sudo.
+  if [ -z "$pids" ] && command -v sudo >/dev/null && nk_port_bound "$port"; then
     pids=$(sudo -n lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
   fi
   printf '%s' "$pids"
+}
+
+# nk_port_bound <port> — true if some process (anyone's) listens on the port.
+# Without ss we cannot tell, so assume it might be and let the caller try sudo.
+nk_port_bound() {
+  command -v ss >/dev/null || return 0
+  [ -n "$(ss -Hltn "( sport = :$1 )" 2>/dev/null)" ]
 }
 
 nk_pid_name() { ps -p "$1" -o comm= 2>/dev/null || echo '?'; }
@@ -192,6 +203,25 @@ nk_detected() {
 # ------------------------------------------------------------------- tmux ----
 
 nk_running()      { tmux has-session -t "=$(nk_session "$1")" 2>/dev/null; }
+
+# nk_pane_id <stack> <label> — the tmux pane id for a pane label. The label is
+# kept in the @nk_label pane option: the pane *title* is also set, for people
+# looking at tmux, but any program that emits a title escape (yarn, htop, a
+# PS1 with \e]0;) overwrites the title, and then a title lookup finds nothing.
+# Older tmux without pane options falls back to the title.
+nk_pane_id() {
+  local sess; sess=$(nk_session "$1")
+  # $'\t': tmux prints a format string's backslashes literally, so the
+  # separator has to be a real tab.
+  tmux list-panes -t "=$sess" -F $'#{@nk_label}\t#{pane_title}\t#{pane_id}' 2>/dev/null |
+    awk -F '\t' -v l="$2" '$1 == l { print $3; exit } $1 == "" && $2 == l { print $3; exit }'
+}
+
+# nk_pane_label <pane-id> — the label a pane was started with.
+nk_pane_label() {
+  local v; v=$(tmux display -p -t "$1" '#{@nk_label}' 2>/dev/null)
+  [ -n "$v" ] && printf '%s' "$v" || tmux display -p -t "$1" '#{pane_title}'
+}
 nk_require_tmux() { command -v tmux >/dev/null || die "ต้องติดตั้ง tmux ก่อน: sudo apt install tmux"; }
 
 # nk_sudo_shim <stack> — a directory to put first on a pane's PATH so every
@@ -202,6 +232,10 @@ nk_sudo_shim() {
   local name=$1 dir="$NK_CACHE/shim/$name" pw
   pw=$(nk_secret_file "$name")
   mkdir -p "$dir"
+  # The files end up read-only, so an earlier run's copies have to go before
+  # they can be written again — a redirect onto a 0500 file fails, even for
+  # its owner.
+  rm -f "$dir/askpass" "$dir/sudo"
   printf '#!/bin/sh\ncat %s\n' "$(printf %q "$pw")" > "$dir/askpass"
   printf '#!/bin/sh\nexec %s -A "$@"\n' "$(command -v sudo || echo /usr/bin/sudo)" > "$dir/sudo"
   chmod 700 "$dir"; chmod 500 "$dir/askpass" "$dir/sudo"

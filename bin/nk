@@ -72,6 +72,9 @@ cmd_up() {
       tmux select-layout -t "$sess:" even-vertical >/dev/null
     fi
     tmux select-pane -t "$sess:" -T "$label"
+    # The label lives in a pane option too: programs overwrite the title, and
+    # nk send / nk logs look panes up by label (see nk_pane_id).
+    tmux set-option -p -t "$sess:" @nk_label "$label" 2>/dev/null
     # Mirror the pane byte-for-byte into a file so the web terminal can stream
     # it live instead of re-capturing the scrollback on a timer.
     logf="$logdir/$NK_NAME--$label.log"
@@ -177,10 +180,11 @@ cmd_show() {
     panes+="$sep{\"label\":$(nk_json_str "$label"),\"cmd\":$(nk_json_str "$cmd")}"
     sep=,
   done
-  printf '{"name":%s,"dir":%s,"ports":%s,"url":%s,"note":%s,"envFile":%s,"file":%s,"hasSudo":%s,"panes":[%s]}\n' \
+  printf '{"name":%s,"dir":%s,"ports":%s,"url":%s,"note":%s,"envFile":%s,"apiBase":%s,"tokenCmd":%s,"file":%s,"hasSudo":%s,"panes":[%s]}\n' \
     "$(nk_json_str "$NK_NAME")" "$(nk_json_str "$NK_DIR")" \
     "$(nk_json_str "$NK_PORTS")" "$(nk_json_str "$NK_URL")" \
     "$(nk_json_str "$NK_NOTE")" "$(nk_json_str "$NK_ENV_FILE")" \
+    "$(nk_json_str "$NK_API_BASE")" "$(nk_json_str "$NK_TOKEN_CMD")" \
     "$(nk_json_str "$NK_FILE")" \
     "$(nk_has_secret "$NK_NAME" && echo true || echo false)" "$panes"
 }
@@ -258,7 +262,7 @@ cmd_logs() {
   nk_running "$name" || die "$name ไม่ได้รันอยู่"
   sess=$(nk_session "$name")
   for pane in $(tmux list-panes -t "=$sess" -F '#{pane_id}'); do
-    printf '%s--- %s ---%s\n' "$C_B" "$(tmux display -p -t "$pane" '#{pane_title}')" "$C_0"
+    printf '%s--- %s ---%s\n' "$C_B" "$(nk_pane_label "$pane")" "$C_0"
     tmux capture-pane -p -t "$pane" -S "-$lines"
   done
 }
@@ -433,10 +437,13 @@ EOF
 cmd_secret() {
   [ $# -ge 1 ] || die "ใช้: nk secret <stack> [set|clear|status]"
   local name=$1 op=${2:-status} f
-  nk_load "$name" >/dev/null
+  case $name in *[!A-Za-z0-9_-]*|'') die "ชื่อ stack ไม่ถูกต้อง" ;; esac
   f=$(nk_secret_file "$name")
   case $op in
     set)
+      # Only "set" needs a real stack; clear and status also serve a stack that
+      # is being deleted or whose folder has gone.
+      nk_load "$name" >/dev/null
       mkdir -p "$NK_SECRETS_DIR"; chmod 700 "$NK_SECRETS_DIR"
       local pw
       if [ -t 0 ]; then read -rs -p "รหัส sudo สำหรับ $name: " pw; echo; else IFS= read -r pw || true; fi
@@ -460,12 +467,10 @@ cmd_secret() {
 # sit there while the pane waits for input nobody can give it.
 cmd_send() {
   [ $# -ge 3 ] || die "ใช้: nk send <stack> <pane> --text <ข้อความ> | --key <ปุ่ม>"
-  local name=$1 label=$2 mode=$3 arg=${4:-} sess pid
+  local name=$1 label=$2 mode=$3 arg=${4:-} pid
   nk_load "$name"
   nk_running "$name" || die "$name ไม่ได้รันอยู่"
-  sess=$(nk_session "$name")
-  pid=$(tmux list-panes -t "=$sess" -F '#{pane_title} #{pane_id}' 2>/dev/null |
-        awk -v l="$label" '$1 == l { print $2; exit }')
+  pid=$(nk_pane_id "$name" "$label")
   [ -n "$pid" ] || die "ไม่มี pane ชื่อ $label ใน $name"
   case $mode in
     --text) [ -n "$arg" ] || return 0
