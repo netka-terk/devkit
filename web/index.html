@@ -160,10 +160,12 @@
   .side-foot { margin-top: auto; padding: 10px 16px 14px; font-size: 12px; color: var(--faint); border-top: 1px solid var(--line); }
   .side-foot code { color: var(--muted); }
 
-  .main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
+  /* The stack page never scrolls as a whole: the header is fixed and the board
+     fills what is left, sizing its rows to fit. */
+  .main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 
   /* --------------------------------------------------------------- detail */
-  .detail { padding: 22px 28px 14px; display: flex; flex-direction: column; gap: 18px; flex: none; }
+  .detail { padding: 16px 28px 12px; display: flex; flex-direction: column; gap: 14px; flex: none; }
   .d-head { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
   .d-title { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
   .d-title h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -.015em; display: flex; align-items: center; gap: 10px; text-wrap: balance; }
@@ -210,7 +212,8 @@
   .note { padding: 10px 14px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); }
 
   /* ---------------------------------------------------------------- board */
-  .board { position: relative; margin: 4px 18px 28px 28px; min-height: 120px; }
+  .board { position: relative; flex: 1; min-height: 0; margin: 2px 18px 16px 28px; }
+  .board.overflowing { overflow-y: auto; }
   .gp {
     position: absolute; margin-right: 10px; display: flex; flex-direction: column; overflow: hidden;
     background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
@@ -343,7 +346,8 @@
     .menu a { padding: 0 10px; }
     .m-stacks .shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
     .m-stacks #side-gutter { display: none; }
-    .board { margin: 0 16px 16px; height: auto !important; display: flex; flex-direction: column; gap: 12px; }
+    .main { overflow: auto; }
+    .board { margin: 0 16px 16px; flex: none; display: flex; flex-direction: column; gap: 12px; }
     .gp { position: static !important; width: auto !important; height: 260px !important; }
     .gp.term { height: 320px !important; }
     .gp-resize, .gp-ph { display: none; }

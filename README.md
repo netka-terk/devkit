@@ -61,10 +61,13 @@ Stacks in detail:
 - **Live terminal**: `nk up` points `tmux pipe-pane` at a file per pane, and the
   page streams those over SSE with ANSI colour, one terminal panel per pane.
   Output is not polled.
-- **Board layout**: the stack page is a 12-column grid. Every panel — ports,
-  commands, each pane's terminal — drags by its header and resizes from its
-  corner, neighbours reflow around it, and the layout is remembered per stack.
-  The grid button in the header resets it.
+- **Board layout**: the stack page is a 12-column grid that always fills one
+  screen — the row unit is derived from the space available, so the panels scale
+  with the window instead of the page scrolling. Every panel (ports, commands,
+  each pane's terminal) drags by its header and resizes from its corner,
+  neighbours reflow around it, and the layout is remembered per stack. The grid
+  button in the header resets it. Only when rows would fall below a readable
+  minimum does the board scroll instead.
 
 Loopback only: the endpoints start and stop processes, there is no auth, and it
 must not be exposed. Stacks resolve from the directory `nk web` was started in,

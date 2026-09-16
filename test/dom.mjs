@@ -92,6 +92,24 @@ check('ปุ่มบน header ไม่เริ่มลาก', (() => { pt
 click(d.querySelector('[data-layout-reset]'));
 check('จัดเรียงใหม่ → ลบ layout ที่จำไว้', w.localStorage.getItem('d3v-layout:alpha') === null);
 
+// One screen: the board must size rows from the space it is given, not from a
+// fixed pixel row. jsdom reports no layout, so the board's height is stubbed.
+const board = d.querySelector('#board');
+Object.defineProperty(board, 'clientHeight', { value: 600, configurable: true });
+Object.defineProperty(board, 'clientWidth', { value: 1200, configurable: true });
+w.dispatchEvent(new w.Event('resize'));
+const tops = [...d.querySelectorAll('#board .gp')].map((e) => parseFloat(e.style.top) + parseFloat(e.style.height));
+check('กล่องทั้งหมดอัดพอดีความสูงที่มี (ไม่ล้นจอ)', Math.abs(Math.max(...tops) - 600) < 2, `สูงรวม ${Math.max(...tops)} จาก 600`);
+Object.defineProperty(board, 'clientHeight', { value: 900, configurable: true });
+w.dispatchEvent(new w.Event('resize'));
+const tops2 = [...d.querySelectorAll('#board .gp')].map((e) => parseFloat(e.style.top) + parseFloat(e.style.height));
+check('ขยายจอ → กล่องขยายตาม', Math.abs(Math.max(...tops2) - 900) < 2, `สูงรวม ${Math.max(...tops2)} จาก 900`);
+// Below the readable minimum the board scrolls instead of squeezing to slivers.
+Object.defineProperty(board, 'clientHeight', { value: 260, configurable: true });
+w.dispatchEvent(new w.Event('resize'));
+check('จอเตี้ยมาก → ยอมให้เลื่อนแทนบีบจนอ่านไม่ออก', board.classList.contains('overflowing'));
+check('board ไม่ตั้งความสูงตายตัวเอง', board.style.height === '');
+
 calls.length = 0; click(d.querySelector('[data-act="restart"]')); await sleep(80);
 check('รีสตาร์ท → POST /api/restart/alpha', has('POST /api/restart/alpha'), calls.join(', '));
 calls.length = 0; click(d.querySelector('[data-act="down"]')); await sleep(80);

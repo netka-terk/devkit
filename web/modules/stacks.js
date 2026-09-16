@@ -8,7 +8,7 @@
   let root = null, $ = null;
   let stacks = [], selected = null, pendingSelect = null;
   const busy = new Set();
-  let timer = null, onKey = null;
+  let timer = null, onKey = null, onResize = null;
 
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   const saved = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -146,7 +146,12 @@
   }
 
   // -------------------------------------------------------------- board --
-  const COLS = 12, ROW = 32, GAP = 10;
+  // The board always fills the viewport: the row unit is derived from the space
+  // actually available, so however many rows the layout has, they add up to one
+  // screen. ROW_MIN is the safety valve — below it the board scrolls rather
+  // than squeezing panels into unreadable slivers.
+  const COLS = 12, GAP = 10, ROW_MIN = 22, ROW_FALLBACK = 32;
+  let rowH = ROW_FALLBACK;
   let layout = [];          // [{ id, x, y, w, h, minW, minH }]
   let drag = null;          // { kind: 'move'|'resize', item, el, x0, y0, orig, colW }
 
@@ -154,18 +159,22 @@
 
   // defaultLayout — ports and commands on top, one terminal per pane below,
   // two terminals per row when there are several.
+  // Rows are relative, not pixels: the board scales whatever total it gets to
+  // the viewport. Info panels take a quarter of the height, terminals the rest.
   function defaultLayout(s) {
     const items = [
-      { id: 'ports', x: 0, y: 0, w: 6, h: 5, minW: 3, minH: 3 },
-      { id: 'panes', x: 6, y: 0, w: 6, h: 5, minW: 3, minH: 3 },
+      { id: 'ports', x: 0, y: 0, w: 6, h: 4, minW: 3, minH: 3 },
+      { id: 'panes', x: 6, y: 0, w: 6, h: 4, minW: 3, minH: 3 },
     ];
     const names = (s.panes || []).map((p) => p.label);
+    const rows = Math.max(1, Math.ceil(names.length / 2));
     const two = names.length >= 2;
+    const h = Math.max(4, Math.round(12 / rows));
     names.forEach((n, i) => items.push({
-      id: `term:${n}`, minW: 3, minH: 4,
-      w: two ? 6 : 12, h: 14,
+      id: `term:${n}`, minW: 3, minH: 3,
+      w: two ? 6 : 12, h,
       x: two ? (i % 2) * 6 : 0,
-      y: 5 + (two ? Math.floor(i / 2) : i) * 14,
+      y: 4 + (two ? Math.floor(i / 2) : i) * h,
     }));
     return items;
   }
@@ -212,19 +221,28 @@
     el.style.left = `${(it.x / COLS) * 100}%`;
     el.style.right = `${(1 - (it.x + it.w) / COLS) * 100}%`;
     el.style.width = 'auto';
-    el.style.top = `${it.y * (ROW + GAP)}px`;
-    el.style.height = `${it.h * ROW + (it.h - 1) * GAP}px`;
+    el.style.top = `${it.y * (rowH + GAP)}px`;
+    el.style.height = `${it.h * rowH + (it.h - 1) * GAP}px`;
+  }
+
+  // fitRows — the row unit that makes `rows` rows exactly fill the board.
+  function fitRows(rows) {
+    const board = $('#board');
+    const avail = board ? board.clientHeight : 0;
+    if (!avail || !rows) return ROW_FALLBACK;
+    return Math.max(ROW_MIN, (avail - (rows - 1) * GAP) / rows);
   }
 
   function applyPositions() {
     const board = $('#board'); if (!board) return;
-    let maxY = 0;
+    const rows = layout.reduce((m, it) => Math.max(m, it.y + it.h), 0);
+    rowH = fitRows(rows);
     for (const it of layout) {
       const el = board.querySelector(`[data-gp="${CSS_escape(it.id)}"]`);
       if (el && !(drag && drag.item === it && drag.kind === 'move')) place(el, it);
-      maxY = Math.max(maxY, it.y + it.h);
     }
-    board.style.height = `${maxY * (ROW + GAP)}px`;
+    // Only when the rows hit ROW_MIN can the content outgrow one screen.
+    board.classList.toggle('overflowing', rows * (rowH + GAP) - GAP > board.clientHeight + 1);
   }
   const CSS_escape = (s) => s.replace(/["\\]/g, '\\$&');
 
@@ -302,7 +320,7 @@
     drag = {
       kind: resize ? 'resize' : 'move', item, el: gp,
       x0: ev.clientX, y0: ev.clientY, orig: { ...item },
-      colW: (board.clientWidth || 1200) / COLS,
+      colW: (board.clientWidth || 1200) / COLS, rowU: rowH + GAP,
       px: { left: gp.offsetLeft, top: gp.offsetTop, w: gp.offsetWidth, h: gp.offsetHeight },
     };
     gp.classList.add('moving');
@@ -319,12 +337,12 @@
       el.style.right = 'auto'; el.style.width = `${drag.px.w}px`;
       el.style.left = `${drag.px.left + dx}px`; el.style.top = `${Math.max(0, drag.px.top + dy)}px`;
       item.x = clamp(orig.x + Math.round(dx / colW), 0, COLS - item.w);
-      item.y = Math.max(0, orig.y + Math.round(dy / (ROW + GAP)));
+      item.y = Math.max(0, orig.y + Math.round(dy / drag.rowU));
     } else {
       el.style.right = 'auto';
       el.style.width = `${Math.max(120, drag.px.w + dx)}px`; el.style.height = `${Math.max(80, drag.px.h + dy)}px`;
       item.w = clamp(orig.w + Math.round(dx / colW), item.minW, COLS - item.x);
-      item.h = Math.max(item.minH, orig.h + Math.round(dy / (ROW + GAP)));
+      item.h = Math.max(item.minH, orig.h + Math.round(dy / drag.rowU));
     }
     compact(layout, item);
     place($('#gp-ph'), item);
@@ -643,6 +661,8 @@
         if (ev.key === 'ArrowUp' && i > 0) select(stacks[i - 1].name);
       };
       document.addEventListener('keydown', onKey);
+      onResize = () => applyPositions();
+      addEventListener('resize', onResize);
       timer = setInterval(() => { if (!document.hidden && !dlg.open && !drag) refresh(); }, 4000);
       refresh();
     },
@@ -651,6 +671,7 @@
     unmount() {
       clearInterval(timer); timer = null;
       document.removeEventListener('keydown', onKey);
+      removeEventListener('resize', onResize);
       document.removeEventListener('pointermove', onBoardPointerMove);
       document.removeEventListener('pointerup', onBoardPointerUp);
       if (es) { es.close(); es = null; }
