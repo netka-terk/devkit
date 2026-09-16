@@ -13,7 +13,8 @@ const stacks = [
     running: true, hasToken: false, ports: [{ port: 3000, holder: 'node', pid: 42 }],
     detected: [{ port: 3000, pid: 42, holder: 'node' }, { port: 9229, pid: 42, holder: 'node' }] },
   { name: 'beta', origin: 'shared', dir: '/home/u/b', url: '', note: '',
-    running: false, hasToken: false, ports: [{ port: 3080, holder: 'stray', pid: 99 }] },
+    running: false, hasToken: false,
+    ports: [{ port: 3080, holder: 'stray', pid: 99 }, { port: 5000, holder: null, pid: null }, { port: 3000, holder: 'node', pid: 42 }] },
 ];
 const detail = (n) => ({ name: n, dir: `/home/u/${n[0]}`, ports: '3000', url: 'http://x', note: '',
   envFile: '', panes: [{ label: 'app', cmd: 'make run' }], editable: true, origin: n === 'alpha' ? 'project' : 'user' });
@@ -122,8 +123,9 @@ check('ปุ่มรีเฟรช', has('GET /api/stacks'));
 calls.length = 0; w.location.hash = '#/ports'; await sleep(150);
 check('สลับเมนู Ports → mount module ใหม่', d.querySelector('#view').classList.contains('m-ports') && d.querySelector('[data-route="ports"]').classList.contains('on'));
 check('Ports โหลดข้อมูลเอง', has('GET /api/stacks'));
-check('ตาราง port รวมทุก stack + port ที่เจอตอนรัน', d.querySelectorAll('.m-ports tbody tr').length === 3 && d.querySelector('.m-ports').textContent.includes(':9229'));
-check('port ถูกจับนอก nk มีปุ่มเคลียร์ ส่วนที่รันโดย nk ไม่มี', d.querySelectorAll('.m-ports [data-kill]').length === 1 && !!d.querySelector('.m-ports [data-kill="3080"]'));
+check('แสดงเฉพาะ port ที่ใช้อยู่ (5000 ว่างไม่โชว์) + port ที่เจอตอนรัน', d.querySelectorAll('.m-ports tbody tr').length === 3 && d.querySelector('.m-ports').textContent.includes(':9229') && !d.querySelector('.m-ports').textContent.includes(':5000'));
+check('port 3000 ที่ 2 stack ประกาศ → แถวเดียว เจ้าของคือตัวที่รัน', (d.querySelector('.m-ports').textContent.match(/:3000/g) || []).length === 1 && d.querySelector('.m-ports tbody tr').textContent.includes('alpha') && d.querySelector('.m-ports tbody tr').textContent.includes('ประกาศด้วย beta'));
+check('ปุ่มเคลียร์มีเฉพาะ port ที่ถูกจับนอก nk — ไม่มีที่ 3000', d.querySelectorAll('.m-ports [data-kill]').length === 1 && !!d.querySelector('.m-ports [data-kill="3080"]'));
 check('ปุ่ม stack ใหม่ ของ Stacks หายไปตอนอยู่เมนูอื่น', !d.querySelector('#new'));
 w.location.hash = '#/stacks/beta'; await sleep(200);
 check('deep link #/stacks/beta → กลับมาที่ Stacks และเลือก beta', d.querySelector('#view').classList.contains('m-stacks') && d.querySelector('#main h1')?.textContent.includes('beta'));

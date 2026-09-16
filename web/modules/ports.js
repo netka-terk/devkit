@@ -3,46 +3,45 @@
   const { api, toast, esc } = D3v;
   let root = null, timer = null;
 
+  // rowsFrom — one row per port that is actually in use. A port declared by
+  // several stacks but held by one running stack belongs to that stack; the
+  // others are only noted, so "clear" never points at a process nk started.
   function rowsFrom(stacks) {
-    const rows = [];
-    const declaredBy = new Map();
-    for (const s of stacks) for (const p of s.ports) declaredBy.set(p.port, [...(declaredBy.get(p.port) || []), s.name]);
-
+    const byPort = new Map();
+    const add = (port, s, p, kind) => {
+      const r = byPort.get(port) || { port, pid: null, holder: null, owner: null, declared: [], kind: 'declared' };
+      if (kind === 'declared') r.declared.push(s.name);
+      if (p.pid != null) { r.pid = p.pid; r.holder = p.holder; }
+      // The running stack that declares or was seen using the port owns it.
+      if (s.running && p.pid != null && !r.owner) { r.owner = s.name; r.kind = kind; }
+      byPort.set(port, r);
+    };
     for (const s of stacks) {
-      const seen = new Set();
-      for (const p of s.ports) {
-        seen.add(p.port);
-        rows.push({ port: p.port, stack: s.name, holder: p.holder, pid: p.pid, kind: 'declared',
-          running: s.running, conflict: (declaredBy.get(p.port) || []).filter((n) => n !== s.name) });
-      }
-      for (const p of (s.detected || [])) {
-        if (seen.has(p.port)) continue;
-        rows.push({ port: p.port, stack: s.name, holder: p.holder, pid: p.pid, kind: 'detected', running: true, conflict: [] });
-      }
+      for (const p of s.ports) add(p.port, s, p, 'declared');
+      for (const p of (s.detected || [])) add(p.port, s, p, 'detected');
     }
-    return rows.sort((a, b) => a.port - b.port || a.stack.localeCompare(b.stack));
+    return [...byPort.values()]
+      .filter((r) => r.pid != null)
+      .map((r) => ({ ...r, stack: r.owner || r.declared[0] || null,
+                     others: r.declared.filter((n) => n !== (r.owner || r.declared[0])) }))
+      .sort((a, b) => a.port - b.port);
   }
 
   function state(r) {
-    if (r.pid == null) return `<span class="st-pill muted">ว่าง</span>`;
-    if (r.running) return `<span class="st-pill good"><span class="dot"></span>รันโดย nk</span>`;
+    if (r.owner) return `<span class="st-pill good"><span class="dot"></span>รันโดย nk</span>`;
     return `<span class="st-pill warn"><span class="dot"></span>ถูกจับนอก nk</span>`;
   }
 
   function render(stacks) {
     const rows = rowsFrom(stacks);
-    const listening = rows.filter((r) => r.pid != null).length;
-    const held = rows.filter((r) => r.pid != null && !r.running).length;
-    const conflicts = new Set(rows.filter((r) => r.conflict.length).map((r) => r.port)).size;
+    const held = rows.filter((r) => !r.owner).length;
 
     root.innerHTML = `
       <div class="head">
         <h1>Ports</h1>
         <div class="chips">
-          <span class="chip"><b class="num">${listening}</b> กำลัง listen</span>
-          <span class="chip"><b class="num">${rows.length}</b> รายการ</span>
+          <span class="chip"><b class="num">${rows.length}</b> กำลังใช้อยู่</span>
           ${held ? `<span class="chip warn"><b class="num">${held}</b> ถูกจับนอก nk</span>` : ''}
-          ${conflicts ? `<span class="chip warn"><b class="num">${conflicts}</b> port ประกาศซ้ำหลาย stack</span>` : ''}
         </div>
       </div>
       <div class="panel"><div class="wrap-x"><table class="tbl">
@@ -50,13 +49,13 @@
         <tbody>${rows.length ? rows.map((r) => `
           <tr>
             <td class="port num">:${r.port}</td>
-            <td><a class="st" href="#/stacks/${encodeURIComponent(r.stack)}">${esc(r.stack)}</a>
+            <td>${r.stack ? `<a class="st" href="#/stacks/${encodeURIComponent(r.stack)}">${esc(r.stack)}</a>` : '<span style="color:var(--faint)">—</span>'}
                 ${r.kind === 'detected' ? `<span class="tag auto">เจอตอนรัน</span>` : ''}
-                ${r.conflict.length ? `<span class="tag" title="ประกาศ port เดียวกัน" style="margin-left:6px;color:var(--warn)">ชนกับ ${esc(r.conflict.join(', '))}</span>` : ''}</td>
+                ${r.others.length ? `<span class="tag" title="stack อื่นที่ประกาศ port เดียวกัน — รันพร้อมกันไม่ได้" style="margin-left:6px">ประกาศด้วย ${esc(r.others.join(', '))}</span>` : ''}</td>
             <td>${state(r)}</td>
-            <td class="holder">${r.pid != null ? `${esc(r.holder)} <span class="num">· pid ${r.pid}</span>` : '<span style="color:var(--faint)">—</span>'}</td>
-            <td style="text-align:right">${r.pid != null && !r.running ? `<button class="btn sm danger" data-kill="${r.port}">เคลียร์</button>` : ''}</td>
-          </tr>`).join('') : `<tr><td colspan="5" class="empty">ยังไม่มี stack ที่ประกาศหรือใช้ port</td></tr>`}
+            <td class="holder">${esc(r.holder)} <span class="num">· pid ${r.pid}</span></td>
+            <td style="text-align:right">${!r.owner ? `<button class="btn sm danger" data-kill="${r.port}">เคลียร์</button>` : ''}</td>
+          </tr>`).join('') : `<tr><td colspan="5" class="empty">ไม่มี port ที่ใช้อยู่ตอนนี้</td></tr>`}
         </tbody>
       </table></div></div>`;
   }
