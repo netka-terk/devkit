@@ -119,7 +119,6 @@
 
   /* ------------------------------------------------------------ m-stacks */
   .m-stacks .shell { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--side-w, 264px) 6px 1fr; }
-  .m-stacks[data-term-sized] .term-wrap { flex: none; height: var(--term-h); }
 
   /* draggable edges */
   .gutter { position: relative; z-index: 1; touch-action: none; user-select: none; }
@@ -129,9 +128,7 @@
   .gutter.v::after { width: 2px; }
   .gutter.h::after { height: 2px; }
   .gutter:hover::after, .gutter.dragging::after { background: var(--accent); }
-  .term-wrap + .gutter, .detail + .gutter.h { margin: 6px 28px -6px; height: 12px; }
-  .split .gutter { margin: 0; background: var(--term-line); }
-  .split .gutter.v { width: 6px; } .split .gutter.h { height: 6px; }
+
   .side {
     background: var(--surface); border-right: 1px solid var(--line);
     display: flex; flex-direction: column; min-height: 0;
@@ -166,7 +163,7 @@
   .main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
 
   /* --------------------------------------------------------------- detail */
-  .detail { padding: 22px 28px 0; display: flex; flex-direction: column; gap: 18px; }
+  .detail { padding: 22px 28px 14px; display: flex; flex-direction: column; gap: 18px; flex: none; }
   .d-head { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
   .d-title { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
   .d-title h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -.015em; display: flex; align-items: center; gap: 10px; text-wrap: balance; }
@@ -212,52 +209,39 @@
   .link svg { width: 12px; height: 12px; }
   .note { padding: 10px 14px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); }
 
-  /* ------------------------------------------------------------- terminal */
-  .term-wrap {
-    margin: 0 28px 24px; background: var(--term-bg); border-radius: 10px;
-    border: 1px solid var(--term-line); overflow: hidden; display: flex; flex-direction: column;
-    min-height: 320px; flex: 1; box-shadow: var(--shadow);
+  /* ---------------------------------------------------------------- board */
+  .board { position: relative; margin: 4px 18px 28px 28px; min-height: 120px; }
+  .gp {
+    position: absolute; margin-right: 10px; display: flex; flex-direction: column; overflow: hidden;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    transition: top .16s ease, left .16s ease, width .16s ease, height .16s ease;
   }
-  .term-bar {
-    display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px;
-    border-bottom: 1px solid var(--term-line); color: #8A94A2; font-size: 12px;
+  .gp.moving { transition: none; z-index: 6; box-shadow: var(--shadow); cursor: grabbing; }
+  .gp-head {
+    display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; flex: none;
+    border-bottom: 1px solid var(--line); cursor: grab; user-select: none; touch-action: none;
+    font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
   }
-  .term-bar .lbl { font-weight: 600; letter-spacing: .08em; text-transform: uppercase; font-size: 11px; }
-  .tabs { display: flex; gap: 2px; margin-left: 6px; }
-  .tabs button {
-    height: 24px; padding: 0 10px; border-radius: 6px; border: 1px solid transparent;
-    background: transparent; color: #8A94A2; font: 500 12px var(--mono);
+  .gp-head:active { cursor: grabbing; }
+  .gp-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gp-title .mono { text-transform: none; letter-spacing: 0; font-size: 12.5px; font-weight: 500; color: var(--fg); }
+  .gp-tools { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; font-weight: 500; }
+  .gp-tools label { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); cursor: pointer; }
+  .gp-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+  .gp-body .kv { align-content: start; }
+  .gp-resize {
+    position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; touch-action: none;
+    background: linear-gradient(135deg, transparent 50%, var(--line-strong) 50%, var(--line-strong) 60%, transparent 60%, transparent 75%, var(--line-strong) 75%, var(--line-strong) 85%, transparent 85%);
+    opacity: .7;
   }
-  .tabs button:hover { color: #C8D0DA; background: #141A22; }
-  .tabs button.on { color: #E6EAF0; background: #1A2029; border-color: #262E38; }
-  .term-bar .grow { flex: 1; }
-  .live { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11.5px; }
-  .live .dot { width: 6px; height: 6px; background: #3E4A58; }
-  .live.on .dot { background: #3CCB85; box-shadow: 0 0 0 3px rgba(60,203,133,.2); }
-  .term-bar label { display: inline-flex; align-items: center; gap: 5px; color: #8A94A2; font-size: 12px; }
-  .term-bar .tbtn {
-    height: 24px; padding: 0 9px; border-radius: 6px; border: 1px solid #262E38;
-    background: transparent; color: #8A94A2; font-size: 12px;
-  }
-  .term-bar .tbtn:hover { color: #E6EAF0; border-color: #344050; }
-  .seg { display: inline-flex; border: 1px solid #262E38; border-radius: 6px; overflow: hidden; }
-  .seg button { height: 24px; width: 28px; border: 0; background: transparent; color: #8A94A2; display: grid; place-items: center; }
-  .seg button:hover { color: #E6EAF0; background: #141A22; }
-  .seg button.on { background: #1A2029; color: #E6EAF0; }
-  .seg svg { width: 14px; height: 14px; }
-  .term-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-  .split { flex: 1; min-height: 0; display: grid; gap: 1px; background: var(--term-line); }
-  .split.cols { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); grid-auto-rows: 1fr; }
-  .split.rows { grid-template-columns: 1fr; grid-auto-rows: 1fr; }
-  .pane { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--term-bg); }
-  .pane header {
-    display: flex; align-items: center; gap: 8px; padding: 5px 8px 5px 12px;
-    font: 500 11.5px var(--mono); color: #8A94A2; border-bottom: 1px solid var(--term-line);
-  }
-  .pane header .grow { flex: 1; }
-  .pane header button { all: unset; cursor: pointer; color: #5E6875; padding: 2px 6px; border-radius: 4px; font: 500 11px var(--mono); }
-  .pane header button:hover { color: #E6EAF0; background: #1A2029; }
-  .pane pre.term { flex: 1; }
+  .gp:hover .gp-resize { opacity: 1; }
+  .gp-ph { position: absolute; margin-right: 10px; border: 1px dashed var(--accent); border-radius: 10px; background: var(--accent-soft); opacity: .7; transition: all .12s; pointer-events: none; }
+
+  .gp.term { background: var(--term-bg); border-color: var(--term-line); }
+  .gp.term .gp-head { border-bottom-color: var(--term-line); color: #8A94A2; }
+  .gp.term .gp-title .mono { color: #E6EAF0; }
+  .gp.term .gp-tools label { color: #8A94A2; }
+  .gp.term .gp-resize { background: linear-gradient(135deg, transparent 50%, #344050 50%, #344050 60%, transparent 60%, transparent 75%, #344050 75%, #344050 85%, transparent 85%); }
   pre.term {
     margin: 0; padding: 12px 16px 16px; flex: 1; min-height: 0; overflow: auto;
     color: var(--term-fg); font: 12.5px/1.5 var(--mono);
@@ -265,7 +249,14 @@
   }
   pre.term::-webkit-scrollbar { width: 10px; }
   pre.term::-webkit-scrollbar-thumb { background: #262E38; border-radius: 5px; }
-  .term-empty { color: #5E6875; padding: 26px 16px; font-family: var(--mono); font-size: 12.5px; }
+  .term-empty { color: #5E6875; padding: 20px 16px; font-family: var(--mono); font-size: 12.5px; }
+  .gp .live { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11.5px; color: #8A94A2; }
+  .gp .live .dot { width: 6px; height: 6px; background: #3E4A58; }
+  .gp .live.on .dot { background: #3CCB85; box-shadow: 0 0 0 3px rgba(60,203,133,.2); }
+  .gp .tbtn { height: 22px; padding: 0 8px; border-radius: 6px; border: 1px solid #262E38; background: transparent; color: #8A94A2; font-size: 12px; }
+  .gp .tbtn:hover { color: #E6EAF0; border-color: #344050; }
+  .d-actions .icon-btn { height: 32px; }
+
 
   /* ---------------------------------------------------------------- empty */
   .welcome { margin: auto; max-width: 440px; text-align: center; padding: 40px 20px; }
@@ -352,11 +343,14 @@
     .menu a { padding: 0 10px; }
     .m-stacks .shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
     .m-stacks #side-gutter { display: none; }
+    .board { margin: 0 16px 16px; height: auto !important; display: flex; flex-direction: column; gap: 12px; }
+    .gp { position: static !important; width: auto !important; height: 260px !important; }
+    .gp.term { height: 320px !important; }
+    .gp-resize, .gp-ph { display: none; }
     .m-ports { padding: 16px; }
     .side { border-right: 0; border-bottom: 1px solid var(--line); max-height: 40vh; }
     .side-foot { display: none; }
     .detail { padding: 16px 16px 0; }
-    .term-wrap { margin: 14px 16px 16px; min-height: 260px; }
     .summary { display: none; }
   }
 </style>
@@ -427,6 +421,8 @@ window.D3v = (() => {
     'st.load.fail': ['โหลดรายการ stack ไม่ได้', 'Could not load stacks'],
     'st.confirm.stop': ['หยุด {name}?', 'Stop {name}?'],
     'ui.drag': ['ลากเพื่อปรับขนาด · ดับเบิลคลิกเพื่อคืนค่าเดิม', 'Drag to resize · double-click to reset'],
+    'ui.drag.panel': ['ลากเพื่อย้ายกล่อง', 'Drag to move this panel'],
+    'ui.layout.reset': ['จัดเรียงกล่องใหม่ตามค่าเริ่มต้น', 'Reset panel layout'],
     'st.port.busy': ['port {port} ถูกใช้อยู่โดย {holder} (pid {pid})', 'Port {port} is in use by {holder} (pid {pid})'],
     'st.port.busy.by': ['— {stack} กำลังรัน ถ้ารัน {me} จะหยุด {stack} ก่อน', '— {stack} is running; running {me} will stop {stack} first'],
     'st.port.busy.ext': ['— ไม่ได้รันผ่าน nk ถ้ารัน {me} จะปิด process นั้นก่อน', '— not started by nk; running {me} will close that process first'],
@@ -511,6 +507,7 @@ window.D3v = (() => {
     tabs: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3.5" width="12" height="10" rx="1.5"/><path d="M2 6.5h12M6 3.5v3"/></svg>',
     cols: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M8 3v10"/></svg>',
     rows: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M2 8h12"/></svg>',
+    grid: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg>',
     stack: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 5.5L8 2.5l5.5 3L8 8.5z"/><path d="M2.5 8.5L8 11.5l5.5-3M2.5 11.5L8 14.5l5.5-3"/></svg>',
     port: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="4.5" width="11" height="7" rx="1.5"/><path d="M5.5 7.5v1M8 7.5v1M10.5 7.5v1"/></svg>',
   };

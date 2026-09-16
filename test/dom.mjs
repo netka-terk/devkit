@@ -69,38 +69,28 @@ check('port ที่เจอตอนรันแต่ไม่ได้ป�
 calls.length = 0; click(d.querySelector('[data-adopt]')); await sleep(80);
 check('จำ port ที่เจอ → POST /api/adopt/alpha', has('POST /api/adopt/alpha'), calls.join(', '));
 
-// Terminal: feed two panes through the mocked stream, then split.
+// Board: one terminal panel per pane, fed through the mocked stream.
 const feed = (pane, text) => w.__es.onmessage({ data: JSON.stringify({ pane, text }) });
-feed('backend', 'INFO listening :3000\n'); feed('frontend', 'webpack compiled\n');
-check('แท็บ 2 pane', d.querySelectorAll('#tabs [data-pane]').length === 2 && !!d.querySelector('#logtext'));
-click(d.querySelector('[data-mode="cols"]'));
-check('แยกซ้าย-ขวา → 2 pane พร้อมกัน', d.querySelectorAll('.split.cols .pane').length === 2);
-check('2 pane มีเส้นแบ่งลากได้', !!d.querySelector('.split [data-split-gutter]'));
+check('board มีกล่อง Ports, Panes และ terminal 1 กล่องต่อ pane', d.querySelectorAll('#board .gp').length === 3 && !!d.querySelector('[data-gp="term:app"]'));
+feed('app', 'INFO listening :3000\n');
+check('stream เข้า terminal ของ pane นั้น', d.querySelector('[data-pre="app"]')?.textContent.includes(':3000'));
+click(d.querySelector('[data-clear="app"]'));
+check('ล้างเฉพาะกล่องนั้น', !d.querySelector('[data-pre="app"]')?.textContent.includes(':3000'));
 
-// Resizing: pointer events on the gutters. jsdom has no layout, so rects are
-// zero and the clamps decide the numbers — what matters is that a drag writes
-// the size, the page picks it up, and double-click clears it.
-const ptr = (el, type, x, y) => el.dispatchEvent(new w.MouseEvent(type, { bubbles: true, clientX: x, clientY: y }));
-const view = d.querySelector('#view');
-ptr(d.querySelector('#side-gutter'), 'pointerdown', 0, 0); ptr(d, 'pointermove', 400, 0); ptr(d, 'pointerup', 400, 0);
-check('ลากขอบ sidebar → ความกว้างเปลี่ยนและถูกจำ', view.style.getPropertyValue('--side-w') === '400px' && w.localStorage.getItem('d3v-side-w') === '400', view.style.getPropertyValue('--side-w'));
-d.querySelector('#side-gutter').dispatchEvent(new w.MouseEvent('dblclick', { bubbles: true }));
-check('ดับเบิลคลิก → คืนค่าเดิม', view.style.getPropertyValue('--side-w') === '' && w.localStorage.getItem('d3v-side-w') === null);
-ptr(d.querySelector('#term-gutter'), 'pointerdown', 0, 300); ptr(d, 'pointermove', 0, 100); ptr(d, 'pointerup', 0, 100);
-check('ลากขอบ terminal → ความสูงถูกตั้ง', view.dataset.termSized === '1' && /px$/.test(view.style.getPropertyValue('--term-h')), view.style.getPropertyValue('--term-h'));
-d.querySelector('#term-gutter').dispatchEvent(new w.MouseEvent('dblclick', { bubbles: true }));
-check('ดับเบิลคลิก terminal → คืนค่าเดิม', !view.dataset.termSized);
-check('แต่ละ pane มี output ของตัวเอง',
-  d.querySelector('[data-pre="backend"]')?.textContent.includes(':3000') && d.querySelector('[data-pre="frontend"]')?.textContent.includes('webpack'));
-feed('frontend', 'rebuilt\n');
-check('stream ใหม่เข้า pane ที่ถูกต้องตอนแยกจอ', d.querySelector('[data-pre="frontend"]')?.textContent.includes('rebuilt') && !d.querySelector('[data-pre="backend"]')?.textContent.includes('rebuilt'));
-click(d.querySelector('[data-mode="rows"]'));
-check('แยกบน-ล่าง', d.querySelectorAll('.split.rows .pane').length === 2);
-click(d.querySelector('[data-clear="backend"]'));
-check('ล้างเฉพาะ pane เดียว', !d.querySelector('[data-pre="backend"]')?.textContent.includes(':3000') && d.querySelector('[data-pre="frontend"]')?.textContent.includes('rebuilt'));
-click(d.querySelector('[data-max="frontend"]'));
-check('ขยาย pane → กลับเป็นแท็บที่ pane นั้น', !!d.querySelector('#logtext') && d.querySelector('#tabs .on')?.dataset.pane === 'frontend' && d.querySelector('#logtext').textContent.includes('rebuilt'));
-check('จำโหมดไว้', w.localStorage.getItem('d3v-term') === 'tabs');
+// Drag a panel by its header: it moves on the grid, others reflow, layout saved per stack.
+const ptr = (el, type, x, y) => el.dispatchEvent(new w.MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
+const gpOf = (id) => d.querySelector(`[data-gp="${id}"]`);
+const before = gpOf('panes').style.top;
+ptr(gpOf('ports').querySelector('.gp-head'), 'pointerdown', 0, 0); ptr(d, 'pointermove', 0, 400); ptr(d, 'pointerup', 0, 400);
+const lay = JSON.parse(w.localStorage.getItem('d3v-layout:alpha') || '{}');
+check('ลากกล่อง Ports ลง → ตำแหน่งเปลี่ยนและถูกจำต่อ stack', lay.ports && lay.ports.y > 0, JSON.stringify(lay.ports));
+check('กล่องอื่นขยับหลบ (Panes ลอยขึ้นไปแทนที่)', lay.panes && lay.panes.y === 0 && gpOf('panes').style.top !== undefined && before !== null);
+ptr(gpOf('panes').querySelector('[data-resize]'), 'pointerdown', 0, 0); ptr(d, 'pointermove', 300, 200); ptr(d, 'pointerup', 300, 200);
+const lay2 = JSON.parse(w.localStorage.getItem('d3v-layout:alpha') || '{}');
+check('ลากมุมกล่อง → ขนาดเปลี่ยน', lay2.panes && (lay2.panes.w > lay.panes.w || lay2.panes.h > lay.panes.h), JSON.stringify(lay2.panes));
+check('ปุ่มบน header ไม่เริ่มลาก', (() => { ptr(gpOf('term:app').querySelector('[data-clear]'), 'pointerdown', 0, 0); const ok = !d.querySelector('.gp.moving'); ptr(d, 'pointerup', 0, 0); return ok; })());
+click(d.querySelector('[data-layout-reset]'));
+check('จัดเรียงใหม่ → ลบ layout ที่จำไว้', w.localStorage.getItem('d3v-layout:alpha') === null);
 
 calls.length = 0; click(d.querySelector('[data-act="restart"]')); await sleep(80);
 check('รีสตาร์ท → POST /api/restart/alpha', has('POST /api/restart/alpha'), calls.join(', '));

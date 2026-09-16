@@ -59,9 +59,12 @@ Stacks in detail:
   up tagged "เจอตอนรัน" with a one-click "จำไว้" that saves them, so the next
   `nk up` frees them first. `nk ports <stack>` and `nk status` show the same.
 - **Live terminal**: `nk up` points `tmux pipe-pane` at a file per pane, and the
-  page streams those over SSE with ANSI colour. Panes show as tabs, or split
-  side by side / stacked — the choice is remembered — and a pane's ⤢ brings it
-  back to full width. Output is not polled.
+  page streams those over SSE with ANSI colour, one terminal panel per pane.
+  Output is not polled.
+- **Board layout**: the stack page is a 12-column grid. Every panel — ports,
+  commands, each pane's terminal — drags by its header and resizes from its
+  corner, neighbours reflow around it, and the layout is remembered per stack.
+  The grid button in the header resets it.
 
 Loopback only: the endpoints start and stop processes, there is no auth, and it
 must not be exposed. Stacks resolve from the directory `nk web` was started in,

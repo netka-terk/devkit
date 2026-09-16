@@ -1,4 +1,7 @@
 // D3v · Stacks — start, stop and watch the local dev stacks (nk's core).
+// The stack page is a board: every panel (ports, commands, one terminal per
+// tmux pane) sits on a 12-column grid and can be dragged and resized, Grafana
+// style. Layouts are kept per stack in localStorage.
 (() => {
   const { api, toast, esc, home, icons: ICON, t } = D3v;
 
@@ -6,6 +9,10 @@
   let stacks = [], selected = null, pendingSelect = null;
   const busy = new Set();
   let timer = null, onKey = null;
+
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const saved = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+  const store = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} };
 
   // ------------------------------------------------------------- markup --
   const SHELL = () => `
@@ -67,8 +74,7 @@
 
   // ------------------------------------------------------------- render --
   function render() {
-    const running = stacks.filter((s) => s.running).length;
-    const held = stacks.reduce((n, s) => n + s.ports.filter((p) => p.pid != null && !s.running).length, 0);
+    if (drag) return;   // never rebuild the DOM under a drag in progress
     $('#count').textContent = stacks.length || '';
     D3v.setActions(`<button class="btn primary" id="new">${ICON.plus} ${t('st.new')}</button>`);
     document.getElementById('new').onclick = () => openEditor(null);
@@ -93,7 +99,6 @@
     }).join('');
 
     renderDetail();
-    void running; void held;
   }
 
   function renderDetail() {
@@ -118,32 +123,6 @@
       ? act('restart', t('st.restart'), ICON.cycle) + act('down', t('st.stop'), ICON.stop, 'danger')
       : act('up', t('st.run'), ICON.play, 'primary');
 
-    const ports = s.ports.map((p) => {
-      const heldByOther = p.pid != null && !s.running;
-      const v = p.pid == null
-        ? `<div class="v muted">${t('st.free')}</div>`
-        : `<div class="v ${heldByOther ? 'held' : ''}">${esc(p.holder)} <span class="num">· pid ${p.pid}</span></div>`;
-      const a = heldByOther
-        ? `<div class="a"><button class="btn sm danger" data-kill="${p.port}" ${isBusy ? 'disabled' : ''}>${t('st.clear')}</button></div>`
-        : `<div class="a"></div>`;
-      return `<div class="k num">:${p.port}</div>${v}${a}`;
-    }).join('');
-
-    const declared = new Set(s.ports.map((p) => p.port));
-    const extra = (s.detected || []).filter((p) => !declared.has(p.port));
-    const detectedRows = extra.map((p) =>
-      `<div class="k num">:${p.port}</div>
-       <div class="v">${esc(p.holder)} <span class="num">· pid ${p.pid}</span> <span class="tag auto">${t('st.detected')}</span></div>
-       <div class="a"></div>`).join('');
-    const portsEmpty = !s.ports.length && !extra.length
-      ? `<div class="empty">${s.running ? t('st.ports.none.running') : t('st.ports.none.stopped')}</div>` : '';
-    const adoptBtn = extra.length
-      ? `<button class="btn sm" data-adopt ${isBusy ? 'disabled' : ''} title="${esc(t('st.adopt.title'))}">${t('st.adopt', { n: extra.length })}</button>` : '';
-
-    const panes = (s.panes || []).map((p) =>
-      `<div class="k">${esc(p.label)}</div><div class="v">${esc(p.cmd)}</div><div class="a"></div>`
-    ).join('') || `<div class="empty">${t('st.panes.none')}</div>`;
-
     main.innerHTML = `
       <section class="detail">
         <div class="d-head">
@@ -156,41 +135,217 @@
           <div class="d-actions">
             ${actions}
             <button class="btn" data-act="edit">${ICON.edit}${t('st.edit')}</button>
-          </div>
-        </div>
-        <div class="grid">
-          <div class="panel">
-            <div class="p-head">${t('st.ports')} ${adoptBtn}</div>
-            <div class="kv">${ports}${detectedRows}${portsEmpty}</div>
-          </div>
-          <div class="panel">
-            <div class="p-head">${t('st.panes')} <span class="num" style="font-weight:500">${(s.panes || []).length}</span></div>
-            <div class="kv">${panes}</div>
+            <button class="icon-btn" data-layout-reset title="${esc(t('ui.layout.reset'))}" aria-label="${esc(t('ui.layout.reset'))}">${ICON.grid}</button>
           </div>
         </div>
       </section>
+      <div class="board" id="board"></div>`;
 
-      <div class="gutter h" id="term-gutter" title="${esc(t('ui.drag'))}"></div>
-      <div class="term-wrap">
-        <div class="term-bar">
-          <span class="lbl">${t('term.title')}</span>
-          <div class="tabs" id="tabs"></div>
-          <span class="grow"></span>
-          <span class="live" id="live"><span class="dot"></span><span id="livetext">${t('term.connecting')}</span></span>
-          <div class="seg" id="termmode" role="group" aria-label="terminal layout">
-            <button data-mode="tabs" title="${esc(t('term.tabs'))}">${ICON.tabs}</button>
-            <button data-mode="cols" title="${esc(t('term.cols'))}">${ICON.cols}</button>
-            <button data-mode="rows" title="${esc(t('term.rows'))}">${ICON.rows}</button>
-          </div>
-          <label><input type="checkbox" id="follow" checked> ${t('term.follow')}</label>
-          <button class="tbtn" id="logclear">${t('term.clear')}</button>
-        </div>
-        <div class="term-body" id="termbody"></div>
-      </div>`;
-
-    wireTermGutter();
+    renderBoard(s);
     attachTerm(s.name);
   }
+
+  // -------------------------------------------------------------- board --
+  const COLS = 12, ROW = 32, GAP = 10;
+  let layout = [];          // [{ id, x, y, w, h, minW, minH }]
+  let drag = null;          // { kind: 'move'|'resize', item, el, x0, y0, orig, colW }
+
+  const layoutKey = (name) => `d3v-layout:${name}`;
+
+  // defaultLayout — ports and commands on top, one terminal per pane below,
+  // two terminals per row when there are several.
+  function defaultLayout(s) {
+    const items = [
+      { id: 'ports', x: 0, y: 0, w: 6, h: 5, minW: 3, minH: 3 },
+      { id: 'panes', x: 6, y: 0, w: 6, h: 5, minW: 3, minH: 3 },
+    ];
+    const names = (s.panes || []).map((p) => p.label);
+    const two = names.length >= 2;
+    names.forEach((n, i) => items.push({
+      id: `term:${n}`, minW: 3, minH: 4,
+      w: two ? 6 : 12, h: 14,
+      x: two ? (i % 2) * 6 : 0,
+      y: 5 + (two ? Math.floor(i / 2) : i) * 14,
+    }));
+    return items;
+  }
+
+  function loadLayout(s) {
+    const items = defaultLayout(s);
+    let sv = null;
+    try { sv = JSON.parse(saved(layoutKey(s.name)) || 'null'); } catch {}
+    if (sv) for (const it of items) {
+      const p = sv[it.id];
+      if (p) { it.x = clamp(p.x | 0, 0, COLS - 1); it.w = clamp(p.w | 0, it.minW, COLS - it.x); it.y = Math.max(0, p.y | 0); it.h = Math.max(it.minH, p.h | 0); }
+    }
+    return compact(items, null);
+  }
+
+  function saveLayout() {
+    const o = {};
+    for (const it of layout) o[it.id] = { x: it.x, y: it.y, w: it.w, h: it.h };
+    store(layoutKey(selected), JSON.stringify(o));
+  }
+
+  const collides = (a, b) => a !== b && a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+  // compact — Grafana-style vertical packing. The pinned item (the one being
+  // dragged) stays exactly where it is; everything else floats up as far as
+  // it can and is pushed down out of any overlap, in reading order.
+  function compact(items, pinned) {
+    const order = [...items].sort((a, b) => a.y - b.y || a.x - b.x);
+    if (pinned) { order.splice(order.indexOf(pinned), 1); order.unshift(pinned); }
+    const placed = [];
+    for (const it of order) {
+      if (it !== pinned) {
+        while (it.y > 0) { it.y--; if (placed.some((p) => collides(it, p))) { it.y++; break; } }
+      }
+      while (placed.some((p) => collides(it, p))) it.y++;
+      placed.push(it);
+    }
+    return items;
+  }
+
+  // place — grid cell → box. Sized by left/right rather than a width with
+  // calc(), so the gap is a plain margin and there is no calc to parse.
+  function place(el, it) {
+    el.style.left = `${(it.x / COLS) * 100}%`;
+    el.style.right = `${(1 - (it.x + it.w) / COLS) * 100}%`;
+    el.style.width = 'auto';
+    el.style.top = `${it.y * (ROW + GAP)}px`;
+    el.style.height = `${it.h * ROW + (it.h - 1) * GAP}px`;
+  }
+
+  function applyPositions() {
+    const board = $('#board'); if (!board) return;
+    let maxY = 0;
+    for (const it of layout) {
+      const el = board.querySelector(`[data-gp="${CSS_escape(it.id)}"]`);
+      if (el && !(drag && drag.item === it && drag.kind === 'move')) place(el, it);
+      maxY = Math.max(maxY, it.y + it.h);
+    }
+    board.style.height = `${maxY * (ROW + GAP)}px`;
+  }
+  const CSS_escape = (s) => s.replace(/["\\]/g, '\\$&');
+
+  function panelHtml(s, it) {
+    const isBusy = busy.has(s.name);
+    const tools = (html) => `<span class="gp-tools">${html}</span>`;
+    let title = '', body = '', cls = '', extra = '';
+
+    if (it.id === 'ports') {
+      title = t('st.ports');
+      const ports = s.ports.map((p) => {
+        const heldByOther = p.pid != null && !s.running;
+        const v = p.pid == null
+          ? `<div class="v muted">${t('st.free')}</div>`
+          : `<div class="v ${heldByOther ? 'held' : ''}">${esc(p.holder)} <span class="num">· pid ${p.pid}</span></div>`;
+        const a = heldByOther
+          ? `<div class="a"><button class="btn sm danger" data-kill="${p.port}" ${isBusy ? 'disabled' : ''}>${t('st.clear')}</button></div>`
+          : `<div class="a"></div>`;
+        return `<div class="k num">:${p.port}</div>${v}${a}`;
+      }).join('');
+      const declared = new Set(s.ports.map((p) => p.port));
+      const extraPorts = (s.detected || []).filter((p) => !declared.has(p.port));
+      const detectedRows = extraPorts.map((p) =>
+        `<div class="k num">:${p.port}</div>
+         <div class="v">${esc(p.holder)} <span class="num">· pid ${p.pid}</span> <span class="tag auto">${t('st.detected')}</span></div>
+         <div class="a"></div>`).join('');
+      const empty = !s.ports.length && !extraPorts.length
+        ? `<div class="empty">${s.running ? t('st.ports.none.running') : t('st.ports.none.stopped')}</div>` : '';
+      extra = extraPorts.length
+        ? `<button class="btn sm" data-adopt ${isBusy ? 'disabled' : ''} title="${esc(t('st.adopt.title'))}">${t('st.adopt', { n: extraPorts.length })}</button>` : '';
+      body = `<div class="kv">${ports}${detectedRows}${empty}</div>`;
+    } else if (it.id === 'panes') {
+      title = `${t('st.panes')} <span class="num" style="font-weight:500">${(s.panes || []).length}</span>`;
+      body = `<div class="kv">${(s.panes || []).map((p) =>
+        `<div class="k">${esc(p.label)}</div><div class="v">${esc(p.cmd)}</div><div class="a"></div>`).join('') || `<div class="empty">${t('st.panes.none')}</div>`}</div>`;
+    } else {
+      const pane = it.id.slice(5);
+      cls = 'term';
+      title = `<span class="mono">${esc(pane)}</span>`;
+      extra = `<span class="live"><span class="dot"></span><span class="livetext">${t('term.connecting')}</span></span>
+               <label><input type="checkbox" data-follow="${esc(pane)}" checked> ${t('term.follow')}</label>
+               <button class="tbtn" data-clear="${esc(pane)}" title="${esc(t('term.clear.pane'))}">${t('term.clear')}</button>`;
+      body = `<pre class="term" data-pre="${esc(pane)}"></pre>`;
+    }
+    return `<section class="gp ${cls}" data-gp="${esc(it.id)}">
+      <header class="gp-head" title="${esc(t('ui.drag.panel'))}"><span class="gp-title">${title}</span>${tools(extra)}</header>
+      <div class="gp-body">${body}</div>
+      <span class="gp-resize" data-resize title="${esc(t('ui.drag'))}"></span>
+    </section>`;
+  }
+
+  function renderBoard(s) {
+    const board = $('#board');
+    layout = loadLayout(s);
+    board.innerHTML = layout.map((it) => panelHtml(s, it)).join('') + `<div class="gp-ph" id="gp-ph" hidden></div>`;
+    applyPositions();
+    // addEventListener, not .onpointerdown: the property form is not an event
+    // handler in every DOM. The board element is rebuilt on each render, so
+    // this cannot stack up duplicate listeners.
+    board.addEventListener('pointerdown', onBoardPointerDown);
+  }
+
+  // Drag to move (from a panel header) or resize (from the corner handle).
+  // Pointer maths uses the board's real width, falling back to a nominal one
+  // where there is no layout engine (tests), so the grid snapping still works.
+  function onBoardPointerDown(ev) {
+    if (ev.button != null && ev.button !== 0) return;
+    const gp = ev.target.closest('.gp'); if (!gp) return;
+    const resize = ev.target.closest('[data-resize]');
+    const head = ev.target.closest('.gp-head');
+    if (!resize && (!head || ev.target.closest('button, input, a, label'))) return;
+    const item = layout.find((it) => it.id === gp.dataset.gp); if (!item) return;
+    ev.preventDefault();
+    const board = $('#board');
+    drag = {
+      kind: resize ? 'resize' : 'move', item, el: gp,
+      x0: ev.clientX, y0: ev.clientY, orig: { ...item },
+      colW: (board.clientWidth || 1200) / COLS,
+      px: { left: gp.offsetLeft, top: gp.offsetTop, w: gp.offsetWidth, h: gp.offsetHeight },
+    };
+    gp.classList.add('moving');
+    const ph = $('#gp-ph'); ph.hidden = false; place(ph, item);
+    document.addEventListener('pointermove', onBoardPointerMove);
+    document.addEventListener('pointerup', onBoardPointerUp);
+  }
+
+  function onBoardPointerMove(ev) {
+    if (!drag) return;
+    const dx = ev.clientX - drag.x0, dy = ev.clientY - drag.y0;
+    const { item, orig, colW, el } = drag;
+    if (drag.kind === 'move') {
+      el.style.right = 'auto'; el.style.width = `${drag.px.w}px`;
+      el.style.left = `${drag.px.left + dx}px`; el.style.top = `${Math.max(0, drag.px.top + dy)}px`;
+      item.x = clamp(orig.x + Math.round(dx / colW), 0, COLS - item.w);
+      item.y = Math.max(0, orig.y + Math.round(dy / (ROW + GAP)));
+    } else {
+      el.style.right = 'auto';
+      el.style.width = `${Math.max(120, drag.px.w + dx)}px`; el.style.height = `${Math.max(80, drag.px.h + dy)}px`;
+      item.w = clamp(orig.w + Math.round(dx / colW), item.minW, COLS - item.x);
+      item.h = Math.max(item.minH, orig.h + Math.round(dy / (ROW + GAP)));
+    }
+    compact(layout, item);
+    place($('#gp-ph'), item);
+    applyPositions();
+  }
+
+  function onBoardPointerUp() {
+    if (!drag) return;
+    const { el, item } = drag;
+    document.removeEventListener('pointermove', onBoardPointerMove);
+    document.removeEventListener('pointerup', onBoardPointerUp);
+    el.classList.remove('moving');
+    $('#gp-ph').hidden = true;
+    drag = null;
+    compact(layout, item);
+    applyPositions();
+    place(el, item);
+    saveLayout();
+  }
+
+  function resetLayout() { store(layoutKey(selected), null); render(); }
 
   // ------------------------------------------------------------ refresh --
   async function refresh() {
@@ -199,7 +354,7 @@
       const list = await api('/api/stacks');
       const prev = Object.fromEntries(stacks.map((s) => [s.name, s.panes]));
       stacks = list.map((s) => ({ ...s, panes: prev[s.name] }));
-      if (pendingSelect && stacks.some((s) => s.name === pendingSelect)) { selected = pendingSelect; }
+      if (pendingSelect && stacks.some((s) => s.name === pendingSelect)) selected = pendingSelect;
       pendingSelect = null;
       if (!selected || !stacks.some((s) => s.name === selected)) selected = stacks[0]?.name ?? null;
       if (selected) await ensurePanes(selected);
@@ -256,10 +411,8 @@
 
   // ----------------------------------------------------------- terminal --
   // tmux pipe-pane mirrors each pane into a file; the server tails those over
-  // SSE, so this only appends and renders ANSI.
-  let es = null, termFor = null, panes = new Map(), activePane = null;
-  let termMode = 'tabs';
-  try { termMode = localStorage.getItem('d3v-term') || 'tabs'; } catch {}
+  // SSE, so this only appends and renders ANSI into that pane's panel.
+  let es = null, termFor = null, panes = new Map();
 
   const SGR = {
     30:'#5E6875',31:'#F0716D',32:'#3CCB85',33:'#F0B44A',34:'#5B93FF',35:'#C792EA',
@@ -295,168 +448,61 @@
   function attachTerm(name) {
     if (termFor !== name) {
       if (es) es.close();
-      panes = new Map(); activePane = null; termFor = name;
+      panes = new Map(); termFor = name;
       es = new EventSource(`/api/stream/${encodeURIComponent(name)}`);
       es.onopen = () => setLive(true);
       es.onerror = () => setLive(false, t('term.retry'));
       es.onmessage = (ev) => {
         let m; try { m = JSON.parse(ev.data); } catch { return; }
-        const fresh = !panes.has(m.pane);
         let buf = (panes.get(m.pane) || '') + m.text;
         if (buf.length > 400000) buf = buf.slice(-300000);
         panes.set(m.pane, buf);
-        if (fresh) renderTerm(); else paint(m.pane);
+        paint(m.pane);
       };
     }
     const s = stacks.find((x) => x.name === name);
     setLive(!!es && es.readyState === 1, s?.running ? undefined : t('term.last'));
-    renderTerm();
-
-    $('#logclear').onclick = () => {
-      if (termMode === 'tabs') panes.set(activePane, '');
-      else for (const k of panes.keys()) panes.set(k, '');
-      paint();
-    };
-    $('#tabs').onclick = (ev) => { const b = ev.target.closest('[data-pane]'); if (b) { activePane = b.dataset.pane; renderTerm(); } };
-    $('#termmode').onclick = (ev) => {
-      const b = ev.target.closest('[data-mode]'); if (!b) return;
-      termMode = b.dataset.mode;
-      try { localStorage.setItem('d3v-term', termMode); } catch {}
-      renderTerm();
-    };
-    $('#termbody').onclick = (ev) => {
-      const clear = ev.target.closest('[data-clear]');
-      if (clear) { panes.set(clear.dataset.clear, ''); paint(clear.dataset.clear); return; }
-      const max = ev.target.closest('[data-max]');
-      if (max) { activePane = max.dataset.max; termMode = 'tabs'; try { localStorage.setItem('d3v-term', 'tabs'); } catch {} renderTerm(); }
-    };
-  }
-
-  function setLive(on, msg) {
-    const el = $('#live'); if (!el) return;
-    el.classList.toggle('on', on);
-    $('#livetext').textContent = msg ?? (on ? t('term.live') : t('term.off'));
-  }
-
-  function renderTerm() {
-    const body = $('#termbody'); if (!body) return;
-    const names = [...panes.keys()];
-    if (!activePane && names.length) activePane = names[0];
-    for (const b of root.querySelectorAll('#termmode [data-mode]')) b.classList.toggle('on', b.dataset.mode === termMode);
-    const tabs = $('#tabs');
-    if (termMode === 'tabs' || names.length < 2) {
-      tabs.hidden = false;
-      tabs.innerHTML = names.map((n) => `<button data-pane="${esc(n)}" class="${n === activePane ? 'on' : ''}">${esc(n)}</button>`).join('');
-      body.innerHTML = `<pre class="term" id="logtext"></pre>`;
-    } else {
-      tabs.hidden = true;
-      const pane = (n) => `
-        <section class="pane" data-pane="${esc(n)}">
-          <header><span>${esc(n)}</span><span class="grow"></span>
-            <button data-clear="${esc(n)}" title="${esc(t('term.clear.pane'))}">${t('term.clear')}</button>
-            <button data-max="${esc(n)}" title="${esc(t('term.max'))}">⤢</button>
-          </header>
-          <pre class="term" data-pre="${esc(n)}"></pre>
-        </section>`;
-      // Two panes get a draggable divider; more than two share the space evenly.
-      const parts = names.length === 2
-        ? [pane(names[0]), `<div class="gutter ${termMode === 'cols' ? 'v' : 'h'}" data-split-gutter title="${esc(t('ui.drag'))}"></div>`, pane(names[1])]
-        : names.map(pane);
-      body.innerHTML = `<div class="split ${termMode}">${parts.join('')}</div>`;
-      if (names.length === 2) applySplit();
-    }
-    wireSplitGutter();
     paint();
   }
 
+  function setLive(on, msg) {
+    for (const el of root.querySelectorAll('.gp .live')) {
+      el.classList.toggle('on', on);
+      el.querySelector('.livetext').textContent = msg ?? (on ? t('term.live') : t('term.off'));
+    }
+  }
+
   function paint(only) {
-    const follow = $('#follow')?.checked ?? true;
     const s = stacks.find((x) => x.name === termFor);
-    const empty = () => `<div class="term-empty">${s?.running ? t('term.wait') : esc(t('term.none', { name: termFor || '' }))}</div>`;
-    const draw = (pre, buf) => {
-      if (!pre) return;
-      if (buf == null) { pre.innerHTML = empty(); return; }
-      pre.innerHTML = ansiToHtml(buf);
-      if (follow) pre.scrollTop = pre.scrollHeight;
-    };
-    const single = $('#logtext');
-    if (single) { if (!only || only === activePane) draw(single, panes.get(activePane)); return; }
     for (const pre of root.querySelectorAll('[data-pre]')) {
-      if (!only || pre.dataset.pre === only) draw(pre, panes.get(pre.dataset.pre));
+      const pane = pre.dataset.pre;
+      if (only && pane !== only) continue;
+      const buf = panes.get(pane);
+      if (buf == null) {
+        pre.innerHTML = `<div class="term-empty">${s?.running ? t('term.wait') : esc(t('term.none', { name: termFor || '' }))}</div>`;
+        continue;
+      }
+      pre.innerHTML = ansiToHtml(buf);
+      const follow = root.querySelector(`[data-follow="${CSS_escape(pane)}"]`)?.checked ?? true;
+      if (follow) pre.scrollTop = pre.scrollHeight;
     }
   }
 
   // ------------------------------------------------------------- resize --
-  // Three draggable edges — sidebar width, terminal height, and the divider of
-  // a two-pane split. Sizes live in CSS variables on the module root so they
-  // survive the periodic re-render, and in localStorage so they survive reload.
-  const SIZES = { side: 'd3v-side-w', term: 'd3v-term-h', split: 'd3v-split-r' };
-  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-  const saved = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
-  const store = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} };
-
-  function drag(handle, axis, onMove, onReset) {
-    if (!handle) return;
-    // addEventListener rather than onpointerdown: the property form is not an
-    // event handler in every DOM (jsdom lacks it), the listener form is.
-    handle.addEventListener('pointerdown', (ev) => {
-      ev.preventDefault();
-      handle.classList.add('dragging');
-      try { handle.setPointerCapture(ev.pointerId); } catch {}
-      const move = (e) => onMove(axis === 'x' ? e.clientX : e.clientY);
-      const up = () => {
-        handle.classList.remove('dragging');
-        document.removeEventListener('pointermove', move);
-        document.removeEventListener('pointerup', up);
-      };
-      document.addEventListener('pointermove', move);
-      document.addEventListener('pointerup', up);
-    });
-    handle.addEventListener('dblclick', onReset);
-  }
-
-  function applySizes() {
-    const w = saved(SIZES.side), h = saved(SIZES.term);
-    root.style.setProperty('--side-w', w ? `${w}px` : '');
-    if (h) { root.style.setProperty('--term-h', `${h}px`); root.dataset.termSized = '1'; }
-    else { root.style.removeProperty('--term-h'); delete root.dataset.termSized; }
-  }
-
-  function applySplit() {
-    const el = $('.split'); if (!el) return;
-    const r = parseFloat(saved(SIZES.split)) || 0.5;
-    const tpl = `minmax(0, ${r}fr) 6px minmax(0, ${1 - r}fr)`;
-    if (termMode === 'cols') { el.style.gridTemplateColumns = tpl; el.style.gridTemplateRows = ''; }
-    else { el.style.gridTemplateRows = tpl; el.style.gridTemplateColumns = '1fr'; }
-    el.style.gap = '0';
-  }
-
+  // The sidebar edge is the one drag outside the board.
   function wireSideGutter() {
-    const shell = $('.shell');
-    drag($('#side-gutter'), 'x', (x) => {
-      const w = clamp(x - shell.getBoundingClientRect().left, 180, 560);
-      store(SIZES.side, Math.round(w)); applySizes();
-    }, () => { store(SIZES.side, null); applySizes(); });
-  }
-
-  function wireTermGutter() {
-    const main = $('#main');
-    drag($('#term-gutter'), 'y', (y) => {
-      const r = main.getBoundingClientRect();
-      const h = clamp(r.bottom - y, 160, Math.max(160, r.height - 120));
-      store(SIZES.term, Math.round(h)); applySizes();
-    }, () => { store(SIZES.term, null); applySizes(); });
-  }
-
-  function wireSplitGutter() {
-    const g = root.querySelector('[data-split-gutter]'); if (!g) return;
-    drag(g, termMode === 'cols' ? 'x' : 'y', (pos) => {
-      const r = $('.split').getBoundingClientRect();
-      const size = termMode === 'cols' ? r.width : r.height;
-      if (!size) return;
-      const start = termMode === 'cols' ? r.left : r.top;
-      store(SIZES.split, clamp((pos - start) / size, 0.15, 0.85).toFixed(3)); applySplit();
-    }, () => { store(SIZES.split, null); applySplit(); });
+    const handle = $('#side-gutter'), shell = $('.shell');
+    root.style.setProperty('--side-w', saved('d3v-side-w') ? `${saved('d3v-side-w')}px` : '');
+    handle.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault(); handle.classList.add('dragging');
+      const move = (e) => {
+        const w = clamp(e.clientX - shell.getBoundingClientRect().left, 180, 560);
+        store('d3v-side-w', Math.round(w)); root.style.setProperty('--side-w', `${Math.round(w)}px`);
+      };
+      const up = () => { handle.classList.remove('dragging'); document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); };
+      document.addEventListener('pointermove', move); document.addEventListener('pointerup', up);
+    });
+    handle.addEventListener('dblclick', () => { store('d3v-side-w', null); root.style.setProperty('--side-w', ''); });
   }
 
   // ------------------------------------------------------------- editor --
@@ -483,7 +529,6 @@
     // A running stack has its name baked into the tmux session and log paths.
     const running = !!stack && !!stacks.find((x) => x.name === stack.name)?.running;
     $('#f-name').disabled = running;
-    $('#f-name-hint').textContent = running ? t('ed.name.running') : '';
     $('#f-name-hint').innerHTML = running ? esc(t('ed.name.running')) : t('ed.name.hint');
     $('#f-dir').value = stack ? stack.dir : '';
     $('#f-ports').value = stack ? (stack.ports || '') : '';
@@ -565,6 +610,9 @@
     const sel = ev.target.closest('[data-select]');
     if (sel) return select(sel.dataset.select);
     if (ev.target.closest('[data-new]')) return openEditor(null);
+    if (ev.target.closest('[data-layout-reset]')) return resetLayout();
+    const clear = ev.target.closest('[data-clear]');
+    if (clear) { panes.set(clear.dataset.clear, ''); return paint(clear.dataset.clear); }
     const kill = ev.target.closest('[data-kill]');
     if (kill) return killPort(kill.dataset.kill);
     if (ev.target.closest('[data-adopt]') && selected) return adoptPorts(selected);
@@ -585,7 +633,6 @@
       root = el; $ = (s) => root.querySelector(s);
       root.innerHTML = SHELL();
       pendingSelect = param || null;
-      applySizes();
       wireSideGutter();
       wireEditor();
       root.addEventListener('click', onClick);
@@ -596,7 +643,7 @@
         if (ev.key === 'ArrowUp' && i > 0) select(stacks[i - 1].name);
       };
       document.addEventListener('keydown', onKey);
-      timer = setInterval(() => { if (!document.hidden && !dlg.open) refresh(); }, 4000);
+      timer = setInterval(() => { if (!document.hidden && !dlg.open && !drag) refresh(); }, 4000);
       refresh();
     },
     navigate(param) { if (param && param !== selected) select(param); },
@@ -604,8 +651,10 @@
     unmount() {
       clearInterval(timer); timer = null;
       document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointermove', onBoardPointerMove);
+      document.removeEventListener('pointerup', onBoardPointerUp);
       if (es) { es.close(); es = null; }
-      termFor = null; panes = new Map(); activePane = null;
+      termFor = null; panes = new Map(); drag = null;
       D3v.setActions('');
       root = null; $ = null;
     },
