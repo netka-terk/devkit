@@ -35,8 +35,8 @@ def sh_quote(v):
     return "'" + str(v).replace("'", "'\\''") + "'"
 
 
-def write_stack(spec):
-    """Write <name>.sh from a UI spec. Returns (ok, message)."""
+def render_stack(spec):
+    """Validate a UI spec and build the stack file text. Returns (ok, text-or-message)."""
     name = spec.get("name", "")
     if not STACK_RE.match(name):
         return False, "ชื่อ stack ใช้ได้เฉพาะ a-z A-Z 0-9 _ - (ไม่เกิน 64 ตัว)"
@@ -74,16 +74,27 @@ def write_stack(spec):
         f"NK_URL={sh_quote(str(spec.get('url', '')).strip())}",
         f"NK_NOTE={sh_quote(str(spec.get('note', '')).strip())}",
     ]
-    env_file = str(spec.get("envFile", "")).strip()
-    if env_file:
-        body.append(f"NK_ENV_FILE={sh_quote(env_file)}")
+    # Optional fields are written only when set. apiBase and tokenCmd are what
+    # nk curl / nk token read; the editor carries them so saving from the page
+    # cannot silently drop them from a stack that had them.
+    for key, var in (("envFile", "NK_ENV_FILE"), ("apiBase", "NK_API_BASE"), ("tokenCmd", "NK_TOKEN_CMD")):
+        v = str(spec.get(key) or "").strip()
+        if v:
+            body.append(f"{var}={sh_quote(v)}")
     body.append("NK_PANES=(")
     body.extend(rows)
     body.append(")")
+    return True, "\n".join(body) + "\n"
 
-    out = STACKS_DIR / f"{name}.sh"
+
+def write_stack(spec):
+    """Write <name>.sh from a UI spec. Returns (ok, message)."""
+    ok, text = render_stack(spec)
+    if not ok:
+        return False, text
+    out = STACKS_DIR / f"{spec['name']}.sh"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("\n".join(body) + "\n")
+    out.write_text(text)
     return True, f"บันทึก {out} แล้ว"
 
 # Strip the CLI's ANSI colouring; the browser renders its own.
@@ -192,26 +203,64 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
 
-        handles = {}   # label -> (file object, path)
+        handles = {}   # label -> open file
+        event = lambda obj: self.wfile.write(b"data: " + json.dumps(obj).encode() + b"\n\n")
+
+        def opened(f, from_tail):
+            fh = f.open("r", errors="replace")
+            if from_tail:
+                # Start from the tail so a fresh viewer is not flooded.
+                fh.seek(max(0, f.stat().st_size - 16384))
+                fh.readline() if fh.tell() else None
+            return fh
+
         try:
             deadline = time.time() + 3600
+            last_write = 0.0
             while time.time() < deadline:
+                seen = set()
                 for f in sorted(LOG_DIR.glob(f"{name}--*.log")):
                     label = f.name[len(name) + 2:-4]
-                    if label not in handles:
-                        fh = f.open("r", errors="replace")
-                        handles[label] = fh
-                        # Start from the tail so a fresh viewer is not flooded.
-                        fh.seek(max(0, f.stat().st_size - 16384))
-                        fh.readline() if fh.tell() else None
-                    chunk = handles[label].read()
+                    seen.add(label)
+                    fh = handles.get(label)
+                    if fh is None:
+                        try:
+                            fh = handles[label] = opened(f, from_tail=True)
+                        except OSError:
+                            continue        # gone between glob and open (nk up mid-way)
+                    else:
+                        # `nk up` deletes and recreates the log (new inode), and a
+                        # truncation means the same. Either way the pane started
+                        # over: reopen from the top and tell the page to clear.
+                        try:
+                            st = f.stat()
+                            rotated = st.st_ino != os.fstat(fh.fileno()).st_ino or st.st_size < fh.tell()
+                        except (OSError, ValueError):
+                            rotated = True
+                        if rotated:
+                            fh.close()
+                            handles.pop(label)
+                            try:
+                                fh = handles[label] = opened(f, from_tail=False)
+                            except OSError:
+                                continue
+                            event({"pane": label, "reset": True})
+                            last_write = time.time()
+                    chunk = fh.read()
                     if chunk:
-                        self.wfile.write(b"data: " + json.dumps(
-                            {"pane": label, "text": chunk}).encode() + b"\n\n")
+                        event({"pane": label, "text": chunk})
                         self.wfile.flush()
-                if not handles:
-                    self.wfile.write(b": waiting\n\n")
+                        last_write = time.time()
+                # A pane whose log vanished (stack deleted) is dropped, not tailed forever.
+                for label in [l for l in handles if l not in seen]:
+                    handles.pop(label).close()
+                # A comment keeps the connection honest: a viewer that navigated
+                # away is noticed within seconds instead of holding a thread until
+                # the pane next prints.
+                if time.time() - last_write > 5:
+                    self.wfile.write(b": ping\n\n")
                     self.wfile.flush()
+                    last_write = time.time()
                 time.sleep(0.4)
         except (BrokenPipeError, ConnectionResetError):
             pass
@@ -263,9 +312,14 @@ class Handler(BaseHTTPRequestHandler):
                 spec = json.loads(self.rfile.read(length) or b"{}")
             except (ValueError, json.JSONDecodeError):
                 return self.send_json(400, {"error": "body ไม่ใช่ JSON"})
+            ok, msg = render_stack(spec)
+            if not ok:
+                return self.send_json(400, {"error": msg})
             prev = str(spec.get("prev") or "")
             if prev and prev != spec.get("name"):
-                # Renaming is nk's job (file + pane logs, refuses while running).
+                # Renaming is nk's job (file + pane logs + secret, refuses while
+                # running). The spec was validated first, so a rename is never
+                # followed by a failed write.
                 if not STACK_RE.match(prev):
                     return self.send_json(400, {"error": "ชื่อเดิมไม่ถูกต้อง"})
                 rc, out, err = run_nk(["rename", prev, str(spec.get("name", ""))], timeout=20)
@@ -313,6 +367,8 @@ class Handler(BaseHTTPRequestHandler):
             if not f.exists():
                 return self.send_json(404, {"error": f"ไม่มี stack {name}"})
             run_nk(["down", name], timeout=60)
+            # The password file is nk's; it must not outlive the stack.
+            run_nk(["secret", name, "clear"], timeout=20)
             f.unlink()
             for log in LOG_DIR.glob(f"{name}--*.log"):
                 log.unlink(missing_ok=True)
