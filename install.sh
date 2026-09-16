@@ -8,12 +8,17 @@ BIN="$HOME/.local/bin"
 STACKS="${NK_STACKS_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/nk/stacks}"
 mkdir -p "$BIN" "$STACKS"
 
-# First install: seed the example stacks. Never overwrite what is already there.
-for f in "$ROOT"/examples/*.sh; do
-  [ -e "$f" ] || continue
-  b=$(basename "$f")
-  [ -e "$STACKS/$b" ] || { cp "$f" "$STACKS/$b"; echo "✓ seeded $STACKS/$b"; }
-done
+# First install only: seed the example stacks into an EMPTY directory. Once
+# the user has any stack of their own, a missing example means they deleted
+# or renamed it, and re-seeding would resurrect it on every install.
+if ! ls "$STACKS"/*.sh >/dev/null 2>&1; then
+  for f in "$ROOT"/examples/*.sh; do
+    [ -e "$f" ] || continue
+    cp "$f" "$STACKS/$(basename "$f")"; echo "✓ seeded $STACKS/$(basename "$f")"
+  done
+else
+  echo "· stacks already present in $STACKS — examples not seeded (copy from $ROOT/examples if wanted)"
+fi
 chmod +x "$ROOT/bin/nk" "$ROOT/bin/d3v"
 ln -sfn "$ROOT/bin/nk" "$BIN/nk"
 ln -sfn "$ROOT/bin/d3v" "$BIN/d3v"
