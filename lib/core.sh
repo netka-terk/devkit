@@ -24,6 +24,14 @@ dim()  { printf '%s%s%s\n' "$C_DIM" "$*" "$C_0"; }
 # Every stack is one shell file in a single directory. No layering, no
 # overrides: what you see in `nk list` is exactly what is in that folder.
 NK_STACKS_DIR="${NK_STACKS_DIR:-$NK_HOME/stacks}"
+NK_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/nk"
+
+# A stack may keep a sudo password so its panes can answer sudo without anyone
+# watching. It lives outside the stack file — that file is meant to be readable
+# and shareable — in its own 0600 file.
+NK_SECRETS_DIR="${NK_SECRETS_DIR:-$NK_HOME/secrets}"
+nk_secret_file() { printf '%s' "$NK_SECRETS_DIR/$1.pw"; }
+nk_has_secret()  { [ -s "$(nk_secret_file "$1")" ]; }
 
 nk_stack_file() { printf '%s' "$NK_STACKS_DIR/$1.sh"; [ -f "$NK_STACKS_DIR/$1.sh" ]; }
 
@@ -186,12 +194,30 @@ nk_detected() {
 nk_running()      { tmux has-session -t "=$(nk_session "$1")" 2>/dev/null; }
 nk_require_tmux() { command -v tmux >/dev/null || die "ต้องติดตั้ง tmux ก่อน: sudo apt install tmux"; }
 
+# nk_sudo_shim <stack> — a directory to put first on a pane's PATH so every
+# `sudo` in that pane (including ones inside a Makefile, which runs under sh and
+# so cannot see a shell function) becomes `sudo -A` and takes the password from
+# SUDO_ASKPASS. Prompt-scraping would be a guess; this is what sudo provides.
+nk_sudo_shim() {
+  local name=$1 dir="$NK_CACHE/shim/$name" pw
+  pw=$(nk_secret_file "$name")
+  mkdir -p "$dir"
+  printf '#!/bin/sh\ncat %s\n' "$(printf %q "$pw")" > "$dir/askpass"
+  printf '#!/bin/sh\nexec %s -A "$@"\n' "$(command -v sudo || echo /usr/bin/sudo)" > "$dir/sudo"
+  chmod 700 "$dir"; chmod 500 "$dir/askpass" "$dir/sudo"
+  printf '%s' "$dir"
+}
+
 # nk_pane_cmd <command> — wrap a pane command with cd, optional env file, and a
 # shell that stays alive after the process exits so errors stay readable.
 nk_pane_cmd() {
-  local cmd=$1 pre=
+  local cmd=$1 pre= shim
+  if nk_has_secret "$NK_NAME"; then
+    shim=$(nk_sudo_shim "$NK_NAME")
+    pre="export PATH=$(printf %q "$shim"):\$PATH SUDO_ASKPASS=$(printf %q "$shim/askpass"); "
+  fi
   [ -n "$NK_ENV_FILE" ] && [ -f "$NK_DIR/$NK_ENV_FILE" ] &&
-    pre="set -a; . ./$NK_ENV_FILE; set +a; "
+    pre="${pre}set -a; . ./$NK_ENV_FILE; set +a; "
   printf 'cd %q && %s%s; printf "\n[%s จบการทำงาน — exit %%s] กด enter เพื่อปิด pane\n" "$?"; read -r; exec bash' \
     "$NK_DIR" "$pre" "$cmd" "$NK_NAME"
 }

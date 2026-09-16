@@ -17,7 +17,7 @@ const stacks = [
     ports: [{ port: 3080, holder: 'stray', pid: 99 }, { port: 5000, holder: null, pid: null }, { port: 3000, holder: 'node', pid: 42 }] },
 ];
 const detail = (n) => ({ name: n, dir: `/home/u/${n[0]}`, ports: '3000', url: 'http://x', note: '',
-  envFile: '', panes: [{ label: 'app', cmd: 'make run' }] });
+  envFile: '', panes: [{ label: 'app', cmd: 'make run' }], hasSudo: n === 'alpha' });
 
 const calls = [];
 const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://localhost/',
@@ -156,6 +156,21 @@ check('เคลียร์ → POST /api/kill/3080', has('POST /api/kill/3080'
 calls.length = 0; click(d.querySelector('[data-act="edit"]')); await sleep(120);
 check('แก้ไข เปิด dialog พร้อมค่าเดิม', d.querySelector('#editor').open && d.querySelector('#f-dir').value === '/home/u/b', `dir="${d.querySelector('#f-dir').value}"`);
 check('stack ที่หยุดอยู่ เปลี่ยนชื่อได้ (ช่องชื่อไม่ถูก disable)', !d.querySelector('#f-name').disabled);
+check('ฟอร์มมีช่องรหัส sudo และซ่อนของเดิม (type=password, ไม่เติมค่ากลับ)',
+  d.querySelector('#f-sudo')?.type === 'password' && d.querySelector('#f-sudo').value === '');
+check('stack ที่ยังไม่มีรหัส ไม่มีปุ่มลบรหัส', d.querySelector('#f-sudo-clear').hidden);
+d.querySelector('#f-sudo').value = 'hunter2';
+calls.length = 0; click(d.querySelector('#f-save')); await sleep(120);
+check('บันทึก → ส่งรหัสไปด้วย', w.__lastBody?.sudoPassword === 'hunter2' && w.__lastBody?.clearSudo === false, JSON.stringify({ p: w.__lastBody?.sudoPassword, c: w.__lastBody?.clearSudo }));
+click(d.querySelector('[data-select="alpha"]')); await sleep(120);
+click(d.querySelector('[data-act="edit"]')); await sleep(120);
+check('stack ที่มีรหัสอยู่แล้ว → ขึ้นว่าบันทึกไว้ + มีปุ่มลบ',
+  !d.querySelector('#f-sudo-clear').hidden && d.querySelector('#f-sudo').placeholder.length > 0);
+click(d.querySelector('#f-sudo-clear'));
+check('กดลบรหัส → ปุ่มหาย และบอกว่าจะลบตอนบันทึก', d.querySelector('#f-sudo-clear').hidden && d.querySelector('#f-sudo-hint').textContent.length > 0);
+click(d.querySelector('#f-cancel'));
+click(d.querySelector('[data-select="beta"]')); await sleep(120);
+click(d.querySelector('[data-act="edit"]')); await sleep(120);
 check('ทุก stack มีปุ่มลบ', !d.querySelector('#f-delete').hidden);
 d.querySelector('#f-name').value = 'beta2';
 calls.length = 0; click(d.querySelector('#f-save')); await sleep(120);

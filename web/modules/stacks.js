@@ -62,6 +62,14 @@
             <label for="f-env">${t('ed.env')}</label>
             <input type="text" id="f-env" class="in mono" placeholder=".env" autocomplete="off" spellcheck="false">
           </div>
+          <div class="field">
+            <label for="f-sudo">${t('ed.sudo')}</label>
+            <div class="row2">
+              <input type="password" id="f-sudo" class="in" autocomplete="new-password" spellcheck="false">
+              <button type="button" class="btn danger" id="f-sudo-clear" hidden>${t('ed.sudo.clear')}</button>
+            </div>
+            <div class="hint" id="f-sudo-hint">${t('ed.sudo.hint')}</div>
+          </div>
         </div>
         <div class="dlg-foot">
           <button type="button" class="btn danger" id="f-delete" hidden>${t('ed.delete')}</button>
@@ -659,7 +667,7 @@
   }
 
   // ------------------------------------------------------------- editor --
-  let dlg = null, editing = null;
+  let dlg = null, editing = null, clearSudo = false;
 
   function cmdRow(label = '', cmd = '') {
     const row = document.createElement('div');
@@ -687,6 +695,11 @@
     $('#f-ports').value = stack ? (stack.ports || '') : '';
     $('#f-url').value = stack ? (stack.url || '') : '';
     $('#f-env').value = stack ? (stack.envFile || '') : '';
+    clearSudo = false;
+    $('#f-sudo').value = '';
+    $('#f-sudo').placeholder = stack?.hasSudo ? t('ed.sudo.kept') : '';
+    $('#f-sudo-clear').hidden = !stack?.hasSudo;
+    $('#f-sudo-hint').innerHTML = t('ed.sudo.hint');
     $('#f-delete').hidden = !stack;
     $('#browser').hidden = true;
     const host = $('#f-cmds'); host.innerHTML = '';
@@ -719,6 +732,12 @@
     dlg = $('#editor');
     $('#f-addcmd').onclick = () => $('#f-cmds').append(cmdRow());
     $('#f-cancel').onclick = () => dlg.close();
+    $('#f-sudo-clear').onclick = () => {
+      clearSudo = true;
+      $('#f-sudo').value = ''; $('#f-sudo').placeholder = '';
+      $('#f-sudo-clear').hidden = true;
+      $('#f-sudo-hint').textContent = t('ed.sudo.willclear');
+    };
     $('#f-browse').onclick = () => {
       const b = $('#browser');
       if (!b.hidden) { b.hidden = true; return; }
@@ -735,6 +754,7 @@
         prev: editing || '',
         name: $('#f-name').value.trim(), dir: $('#f-dir').value.trim(),
         ports: $('#f-ports').value.trim(), url: $('#f-url').value.trim(), envFile: $('#f-env').value.trim(),
+        sudoPassword: $('#f-sudo').value, clearSudo,
         panes: [...$('#f-cmds').querySelectorAll('.cmdrow')].map((r) => ({
           label: r.querySelector('.lbl').value.trim(), cmd: r.querySelector('.cmd').value.trim(),
         })).filter((r) => r.cmd),

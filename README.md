@@ -62,8 +62,16 @@ Stacks in detail:
   page streams those over SSE with ANSI colour, one terminal panel per pane.
   Output is not polled. A terminal panel is also an input: focus it and
   keystrokes go to the tmux pane through `nk send`, so a pane waiting on a
-  prompt — `sudo` asking for a password, a script asking y/n — can be answered
-  from the page instead of stalling there.
+  prompt can be answered from the page instead of stalling there.
+- **sudo without watching**: a stack whose commands call `sudo` (nksmdm builds
+  with `sudo setcap`) can hold a password. It is stored in its own 0600 file
+  under `~/.config/nk/secrets/`, never in the stack file, and the pane gets a
+  `sudo` shim on `PATH` plus `SUDO_ASKPASS`, so every `sudo` in that pane —
+  including ones inside a Makefile, which runs under `sh` and cannot see a shell
+  function — takes the password from there rather than prompting. Prompt
+  scraping would be a guess; this is what sudo provides for the purpose.
+  A `NOPASSWD` sudoers rule for just that command is safer and needs no stored
+  password; the editor says so next to the field.
 - **Board layout**: the stack page is a 12-column grid that always fills one
   screen — the row unit is derived from the space available, so the panels scale
   with the window instead of the page scrolling. Every panel (ports, commands,
@@ -90,6 +98,8 @@ copies any that are missing, once, and never overwrites.
     nk init [name]           # scaffold a stack for the current folder (git root if in a repo)
     nk rename old new        # rename a stopped stack (file + pane logs)
     nk send <stack> <pane> --text "y" | --key Enter   # type into a running pane
+    nk secret <stack> set    # store the sudo password (read from stdin)
+    nk secret <stack> clear
 
 ## Stack file contract
 

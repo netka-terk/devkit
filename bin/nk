@@ -10,8 +10,6 @@ NK_ROOT=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)
 # shellcheck source=../lib/core.sh
 . "$NK_ROOT/lib/core.sh"
 
-NK_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/nk"
-
 # ===================================================================== up ====
 
 cmd_up() {
@@ -179,11 +177,12 @@ cmd_show() {
     panes+="$sep{\"label\":$(nk_json_str "$label"),\"cmd\":$(nk_json_str "$cmd")}"
     sep=,
   done
-  printf '{"name":%s,"dir":%s,"ports":%s,"url":%s,"note":%s,"envFile":%s,"file":%s,"panes":[%s]}\n' \
+  printf '{"name":%s,"dir":%s,"ports":%s,"url":%s,"note":%s,"envFile":%s,"file":%s,"hasSudo":%s,"panes":[%s]}\n' \
     "$(nk_json_str "$NK_NAME")" "$(nk_json_str "$NK_DIR")" \
     "$(nk_json_str "$NK_PORTS")" "$(nk_json_str "$NK_URL")" \
     "$(nk_json_str "$NK_NOTE")" "$(nk_json_str "$NK_ENV_FILE")" \
-    "$(nk_json_str "$NK_FILE")" "$panes"
+    "$(nk_json_str "$NK_FILE")" \
+    "$(nk_has_secret "$NK_NAME" && echo true || echo false)" "$panes"
 }
 
 cmd_status() {
@@ -426,6 +425,34 @@ EOF
   dim "    แก้ NK_PANES ให้ตรงกับโปรเจค แล้วสั่ง: nk up $name"
 }
 
+# ================================================================= secret ====
+
+# cmd_secret <stack> set|clear|status — the sudo password a stack's panes use.
+# "set" reads from stdin, never an argument, so it cannot land in shell history
+# or a process list.
+cmd_secret() {
+  [ $# -ge 1 ] || die "ใช้: nk secret <stack> [set|clear|status]"
+  local name=$1 op=${2:-status} f
+  nk_load "$name" >/dev/null
+  f=$(nk_secret_file "$name")
+  case $op in
+    set)
+      mkdir -p "$NK_SECRETS_DIR"; chmod 700 "$NK_SECRETS_DIR"
+      local pw
+      if [ -t 0 ]; then read -rs -p "รหัส sudo สำหรับ $name: " pw; echo; else IFS= read -r pw || true; fi
+      [ -n "$pw" ] || die "ไม่ได้ใส่รหัส"
+      ( umask 077; printf '%s' "$pw" > "$f" )
+      ok "เก็บรหัสไว้ที่ $f (สิทธิ์ 600)"
+      warn "เป็นไฟล์รหัสแบบอ่านได้ — ทางที่ปลอดภัยกว่าคือเพิ่มกฎ NOPASSWD ใน sudoers เฉพาะคำสั่งที่ต้องใช้"
+      ;;
+    clear) rm -f "$f" "$NK_CACHE/shim/$name/askpass" "$NK_CACHE/shim/$name/sudo"
+           rmdir "$NK_CACHE/shim/$name" 2>/dev/null
+           ok "ลบรหัสของ $name แล้ว" ;;
+    status) nk_has_secret "$name" && echo set || echo none ;;
+    *) die "ใช้: nk secret <stack> [set|clear|status]" ;;
+  esac
+}
+
 # =================================================================== send ====
 
 # cmd_send <stack> <pane> --text <s> | --key <name> — type into a running pane.
@@ -468,6 +495,8 @@ cmd_rename() {
   [ ! -e "$NK_STACKS_DIR/$new.sh" ] || die "มี stack ชื่อ $new อยู่แล้ว"
   nk_running "$old" && die "$old กำลังรันอยู่ — หยุดก่อน (nk down $old) แล้วค่อยเปลี่ยนชื่อ"
   mv "$NK_FILE" "$NK_STACKS_DIR/$new.sh"
+  [ -e "$(nk_secret_file "$old")" ] && mv "$(nk_secret_file "$old")" "$(nk_secret_file "$new")"
+  rm -rf "$NK_CACHE/shim/$old"
   for f in "$NK_CACHE/logs/$old--"*.log; do
     [ -e "$f" ] && mv "$f" "$NK_CACHE/logs/$new--${f##*--}"
   done
@@ -503,6 +532,7 @@ ${C_B}nk${C_0} — dev stack runner (ใช้ได้กับทุกโป�
   ${C_B}nk init [name]${C_0}         สร้าง stack ให้โฟลเดอร์ปัจจุบัน
   ${C_B}nk rename <เดิม> <ใหม่>${C_0}  เปลี่ยนชื่อ stack (ต้องหยุดอยู่)
   ${C_B}nk send <stack> <pane> --text|--key${C_0}  พิมพ์เข้า pane ที่รันอยู่ (ตอบ prompt)
+  ${C_B}nk secret <stack> set|clear${C_0}  รหัส sudo ที่ pane ของ stack จะใช้ตอบเอง
   ${C_B}nk web [port]${C_0}          เปิดหน้าเว็บที่ 127.0.0.1:7777 (default)
 
   ${C_B}nk token [stack] [-f]${C_0}      token จาก NK_TOKEN_CMD (cache + mint ใหม่เมื่อใกล้หมดอายุ)
@@ -539,6 +569,7 @@ case ${1:-help} in
   ports)    shift; cmd_ports "$@" ;;
   rename)   shift; cmd_rename "$@" ;;
   send)     shift; cmd_send "$@" ;;
+  secret)   shift; cmd_secret "$@" ;;
   help|-h|--help) cmd_help ;;
   *) die "ไม่รู้จักคำสั่ง '$1' (ดู: nk help)" ;;
 esac

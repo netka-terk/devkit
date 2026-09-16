@@ -90,11 +90,11 @@ def write_stack(spec):
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
-def run_nk(args, timeout=180):
+def run_nk(args, timeout=180, stdin=None):
     try:
         p = subprocess.run(
             [NK, *args],
-            capture_output=True, text=True, timeout=timeout,
+            input=stdin, capture_output=True, text=True, timeout=timeout,
             cwd=os.environ.get("NK_CWD") or str(Path.home()),
         )
         return p.returncode, ANSI.sub("", p.stdout), ANSI.sub("", p.stderr)
@@ -272,8 +272,20 @@ class Handler(BaseHTTPRequestHandler):
                 if rc != 0:
                     return self.send_json(400, {"error": (err or out).strip()})
             ok, msg = write_stack(spec)
-            return self.send_json(200 if ok else 400,
-                                  {"ok": ok, "output": msg} if ok else {"error": msg})
+            if not ok:
+                return self.send_json(400, {"error": msg})
+            # The sudo password is never part of the stack file: nk keeps it in
+            # its own 0600 file, and it is read from stdin so it stays out of
+            # any process list.
+            name = str(spec.get("name", ""))
+            if spec.get("clearSudo"):
+                run_nk(["secret", name, "clear"], timeout=20)
+            elif spec.get("sudoPassword"):
+                rc, out, err = run_nk(["secret", name, "set"], timeout=20,
+                                      stdin=str(spec["sudoPassword"]))
+                if rc != 0:
+                    return self.send_json(400, {"error": (err or out).strip()})
+            return self.send_json(200, {"ok": True, "output": msg})
 
         if path.startswith("/api/adopt/"):
             name = self.stack_from(path, "/api/adopt/")
