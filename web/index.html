@@ -320,6 +320,42 @@
   .in:disabled { color: var(--muted); background: var(--sunken); }
   .in.mono { font-family: var(--mono); font-size: 13px; }
   .row2 { display: flex; gap: 6px; }
+
+  /* stack colour: one hue per stack, the same one tmux paints its borders in */
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .d-title h1 .swatch { width: 13px; height: 13px; border-radius: 4px; }
+  .dot.on { background: var(--sc, var(--good)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sc, var(--good)) 22%, transparent); }
+  .dot.starting { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
+  .dot.bad { background: var(--bad); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 25%, transparent); }
+  @keyframes pulse { 50% { opacity: .3; } }
+  @media (prefers-reduced-motion: reduce) { .dot.starting, .tbtn.wait { animation: none; } }
+  .state.starting { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+  .state.starting .dot { background: var(--warn); box-shadow: none; animation: pulse 1.2s ease-in-out infinite; }
+  .state.bad { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
+  .state.bad .dot { background: var(--bad); box-shadow: none; }
+  .tag.exit { text-transform: none; letter-spacing: 0; }
+  .tag.exit.bad { color: var(--bad); background: var(--bad-soft); border-color: transparent; }
+  .gp.waiting { border-color: var(--warn); }
+  .gp.waiting .gp-head { background: color-mix(in srgb, var(--warn) 14%, transparent); }
+  .gp .tbtn.wait { color: var(--warn); border-color: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
+  .gp.zoomed { z-index: 5; }
+
+  /* command palette */
+  dialog.pal { width: min(92vw, 560px); margin-top: 12vh; }
+  .pal input { width: 100%; height: 48px; border: 0; border-bottom: 1px solid var(--line); background: transparent; padding: 0 16px; font-size: 15px; color: var(--fg); outline: none; }
+  .pal-list { max-height: 50vh; overflow: auto; padding: 6px; }
+  .pal-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r); cursor: pointer; }
+  .pal-item.on, .pal-item:hover { background: var(--accent-soft); }
+  .pal-item .pal-ico { width: 16px; height: 16px; color: var(--muted); display: grid; place-items: center; flex: none; }
+  .pal-item .pal-ico svg { width: 15px; height: 15px; }
+  .pal-item .pal-label { flex: 1; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pal-item code { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .pal-empty { padding: 18px; color: var(--faint); text-align: center; }
+  .pal-foot { padding: 8px 14px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--faint); }
+  .pal-btn { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--bg); color: var(--muted); font-size: 12.5px; }
+  .pal-btn:hover { color: var(--fg); border-color: var(--line-strong); }
+  .pal-btn kbd { font: 500 10.5px var(--mono); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+  #notify.on { color: var(--accent); border-color: var(--accent); }
   details.adv summary { cursor: pointer; font-size: 13px; color: var(--muted); list-style: none; display: flex; align-items: center; gap: 6px; }
   details.adv summary::before { content: ''; width: 5px; height: 5px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform .12s; }
   details.adv[open] summary::before { transform: rotate(45deg); }
@@ -380,6 +416,7 @@
 
   @media (max-width: 760px) {
     .menu a span:not(.k) { display: none; }
+    .pal-btn span { display: none; }
     .menu a { padding: 0 10px; }
     .m-stacks .shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
     .m-stacks #side-gutter { display: none; }
@@ -404,6 +441,10 @@
   </a>
   <nav class="menu" id="menu" aria-label="menu"></nav>
   <div class="grow"></div>
+  <button class="pal-btn" id="pal-btn"><span id="pal-btn-text"></span><kbd>Ctrl K</kbd></button>
+  <button class="icon-btn" id="notify" aria-label="notifications">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 11V7.5a4 4 0 0 1 8 0V11l1 1.5H3z"/><path d="M6.5 13.5a1.5 1.5 0 0 0 3 0"/></svg>
+  </button>
   <div class="lang" id="lang" role="group">
     <button data-lang="th">TH</button><button data-lang="en">EN</button>
   </div>
@@ -418,6 +459,11 @@
 
 <main class="view" id="view"></main>
 <div class="toasts" id="toasts"></div>
+<dialog class="pal" id="palette">
+  <input type="text" id="pal-in" autocomplete="off" spellcheck="false">
+  <div class="pal-list" id="pal-list"></div>
+  <div class="pal-foot" id="pal-foot"></div>
+</dialog>
 
 <script>
 // D3v shell — owns the chrome (brand, menu, theme, refresh) and a tiny hash
@@ -437,6 +483,17 @@ window.D3v = (() => {
     'chrome.refresh': ['รีเฟรช', 'Refresh'],
     'chrome.lang': ['เปลี่ยนภาษา', 'Switch language'],
     'err.notjson': ['ตอบกลับไม่ใช่ JSON', 'Response was not JSON'],
+    'chrome.notify': ['แจ้งเตือนเมื่อ pane ตาย, stack พร้อม หรือ pane รอ input (ตอนที่ tab ถูกซ่อน)', 'Notify when a pane dies, a stack is ready or a pane waits for input (while the tab is hidden)'],
+    'chrome.notify.on': ['เปิดแจ้งเตือนแล้ว — จะเด้งเฉพาะตอนที่ไม่ได้ดู tab นี้', 'Notifications on — only while this tab is hidden'],
+    'chrome.notify.off': ['ปิดแจ้งเตือนแล้ว', 'Notifications off'],
+    'chrome.notify.denied': ['เบราว์เซอร์ไม่อนุญาตให้แจ้งเตือน', 'The browser refused notifications'],
+    'pal.btn': ['คำสั่ง', 'Commands'],
+    'pal.ph': ['พิมพ์สิ่งที่จะทำ… เช่น up grafana, kill 3000, ports', 'Type what to do… e.g. up grafana, kill 3000, ports'],
+    'pal.empty': ['ไม่พบคำสั่งที่ตรง', 'Nothing matches'],
+    'pal.hint': ['↑↓ เลือก · Enter ทำ · Esc ปิด — ทุกรายการโชว์คำสั่ง nk ที่เทียบเท่า', '↑↓ choose · Enter run · Esc close — each item shows its nk equivalent'],
+    'pal.go': ['ไปที่ {menu}', 'Go to {menu}'],
+    'pal.open': ['เปิด {name}', 'Open {name}'],
+    'badge.up': ['{up}/{total} up', '{up}/{total} up'],
 
     'st.new': ['stack ใหม่', 'New stack'],
     'st.foot': ['ทุกปุ่มมีคำสั่งเทียบเท่า เช่น', 'Every button has a CLI equivalent, e.g.'],
@@ -447,6 +504,19 @@ window.D3v = (() => {
     'st.pick': ['เลือก stack จากรายการด้านซ้าย', 'Pick a stack from the list'],
     'st.run': ['รัน', 'Run'], 'st.stop': ['หยุด', 'Stop'], 'st.restart': ['รีสตาร์ท', 'Restart'], 'st.edit': ['แก้ไข', 'Edit'],
     'st.running': ['กำลังรัน', 'Running'], 'st.stopped': ['หยุดอยู่', 'Stopped'],
+    'st.starting': ['กำลังเริ่ม', 'Starting'], 'st.ready': ['พร้อม', 'Ready'], 'st.crashed': ['pane ตาย', 'Pane died'],
+    'st.state.title.starting': ['session รันแล้ว แต่ยังไม่มีอะไร listen บน port', 'The session is up but nothing listens on a port yet'],
+    'st.state.title.ready': ['มี process listen บน port แล้ว', 'A process is listening on a port'],
+    'st.state.title.crashed': ['คำสั่งใน pane จบด้วย exit ไม่ใช่ 0 — เปิด terminal ดู', 'A pane\'s command exited non-zero — see its terminal'],
+    'st.exit': ['exit {code}', 'exit {code}'],
+    'st.exit.title': ['คำสั่งของ pane นี้จบแล้ว (exit {code}) — shell ยังเปิดไว้ให้อ่าน output', 'This pane\'s command has finished (exit {code}); the shell stays open so the output is readable'],
+    'st.waiting': ['รอ input', 'waiting for input'],
+    'st.waiting.title': ['pane นี้หยุดที่บรรทัดที่ยังไม่จบ — น่าจะรอให้พิมพ์ คลิกเพื่อโฟกัสแล้วตอบได้เลย', 'This pane stopped mid-line — probably a prompt. Click to focus and answer it'],
+    'st.notify.crash': ['{name}: pane {pane} จบด้วย exit {code}', '{name}: pane {pane} exited {code}'],
+    'st.notify.ready': ['{name} พร้อมแล้ว', '{name} is ready'],
+    'st.notify.wait': ['{name}: pane {pane} รอ input', '{name}: pane {pane} is waiting for input'],
+    'ui.zoom': ['ขยายเต็ม board (หรือดับเบิลคลิกหัวกล่อง)', 'Fill the board (or double-click the header)'],
+    'ui.unzoom': ['กลับ layout เดิม (Esc)', 'Back to the layout (Esc)'],
     'st.ports': ['Ports', 'Ports'], 'st.panes': ['Panes', 'Panes'],
     'st.free': ['ว่าง', 'free'], 'st.clear': ['เคลียร์', 'Clear'],
     'st.detected': ['เจอตอนรัน', 'seen at runtime'],
@@ -586,6 +656,10 @@ window.D3v = (() => {
 
   function applyChrome() {
     document.documentElement.lang = lang;
+    document.getElementById('pal-btn-text').textContent = t('pal.btn');
+    document.getElementById('pal-in').placeholder = t('pal.ph');
+    document.getElementById('pal-foot').textContent = t('pal.hint');
+    document.getElementById('notify').title = t('chrome.notify');
     document.getElementById('theme').title = t('chrome.theme');
     document.getElementById('refresh').title = t('chrome.refresh');
     const lb = document.getElementById('lang');
@@ -622,7 +696,8 @@ window.D3v = (() => {
       document.getElementById('actions').innerHTML = '';
       mounted = m;
       m.mount(view, param);
-      document.title = `${label(m)} · D3v`;
+      baseTitle = `${label(m)} · D3v`;
+      setBadge(lastBadge);
     } else {
       m.navigate?.(param);
     }
@@ -662,7 +737,124 @@ window.D3v = (() => {
   // setActions(html) — a module puts its header-level buttons here.
   const setActions = (html) => { document.getElementById('actions').innerHTML = html; };
 
-  return { register, api, toast, esc, home, icons, setActions, t, get lang() { return lang; }, get HOME() { return HOME; } };
+  // ------------------------------------------------------ stack colour --
+  // One hue per stack, from the same hash nk uses for its tmux borders (see
+  // nk_hue in lib/core.sh), so a stack looks the same attached and on the page.
+  const HUES = [4, 28, 48, 90, 140, 170, 195, 220, 250, 280, 310, 340];
+  const hue = (name) => { let h = 0; for (const ch of String(name)) h = (h * 31 + ch.codePointAt(0)) % 1000003; return HUES[h % 12]; };
+  const color = (name) => `hsl(${hue(name)} 60% 50%)`;
+
+  // -------------------------------------------------------------- state --
+  // stateOf — what a stack is doing, from what nk reports: the tmux session,
+  // who holds its ports, and the exit code of any pane whose command ended.
+  // "running" alone would call a crashed pane running: its shell stays open.
+  function stateOf(s) {
+    if (!s.running) return 'stopped';
+    if (Object.values(s.exits || {}).some((c) => c !== 0)) return 'crashed';
+    if (s.ports.some((p) => p.pid != null) || (s.detected || []).length) return 'ready';
+    return s.ports.length ? 'starting' : 'running';
+  }
+  const STATE = {   // state -> [label key, css class]
+    stopped: ['st.stopped', ''], running: ['st.running', 'on'], ready: ['st.ready', 'on'],
+    starting: ['st.starting', 'starting'], crashed: ['st.crashed', 'bad'],
+  };
+
+  // -------------------------------------------------------------- badge --
+  // The tab tells the state while another window has the attention: a
+  // favicon dot and a "2/4 up" title prefix.
+  let baseTitle = 'D3v', lastBadge = {};
+  const favicon = document.createElement('link'); favicon.rel = 'icon'; document.head.append(favicon);
+  function setBadge({ text = '', kind = 'idle' } = {}) {
+    lastBadge = { text, kind };
+    document.title = (text ? `${text} · ` : '') + baseTitle;
+    const c = { good: '#1F9D62', warn: '#E0A030', bad: '#D64545', idle: '#97A1AE' }[kind] || '#97A1AE';
+    favicon.href = 'data:image/svg+xml,' + encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#141922"/><circle cx="16" cy="16" r="8" fill="${c}"/></svg>`);
+  }
+
+  // ------------------------------------------------------------- notify --
+  // Desktop notifications, opt-in via the bell, and only while the tab is
+  // hidden — on screen the page itself is the notification.
+  let notifyOn = false;
+  try { notifyOn = localStorage.getItem('d3v-notify') === '1'; } catch {}
+  const bell = document.getElementById('notify');
+  const paintBell = () => bell.classList.toggle('on', notifyOn);
+  bell.onclick = async () => {
+    if (!notifyOn) {
+      if (!('Notification' in window)) return toast(t('chrome.notify.denied'), { kind: 'bad' });
+      let perm = Notification.permission;
+      if (perm === 'default') perm = await Notification.requestPermission();
+      if (perm !== 'granted') return toast(t('chrome.notify.denied'), { kind: 'bad' });
+    }
+    notifyOn = !notifyOn;
+    try { localStorage.setItem('d3v-notify', notifyOn ? '1' : '0'); } catch {}
+    paintBell();
+    toast(t(notifyOn ? 'chrome.notify.on' : 'chrome.notify.off'));
+  };
+  paintBell();
+  function notify(title, body = '') {
+    if (!notifyOn || !document.hidden || !('Notification' in window) || Notification.permission !== 'granted') return;
+    try { new Notification(title, { body, silent: true }); } catch {}
+  }
+
+  // announce(stacks) — badge + notifications from a fresh stack list. Every
+  // module that polls /api/stacks hands its result here, so the badge is
+  // current whichever menu is open. Transitions are detected against the
+  // previous list: a pane that just died, a stack that just became ready.
+  let seen = null;   // name -> { state, exits }
+  function announce(list) {
+    const states = list.map((s) => stateOf(s));
+    const up = list.filter((s) => s.running).length, crashed = states.filter((x) => x === 'crashed').length;
+    setBadge({
+      text: list.length ? (crashed ? '✕ ' : '') + t('badge.up', { up, total: list.length }) : '',
+      kind: crashed ? 'bad' : states.includes('starting') ? 'warn' : up ? 'good' : 'idle',
+    });
+    if (seen) for (const s of list) {
+      const p = seen.get(s.name); if (!p) continue;
+      for (const [pane, code] of Object.entries(s.exits || {}))
+        if (code !== 0 && p.exits[pane] !== code) notify(t('st.notify.crash', { name: s.name, pane, code }));
+      if (p.state === 'starting' && stateOf(s) === 'ready') notify(t('st.notify.ready', { name: s.name }), s.url || '');
+    }
+    seen = new Map(list.map((s) => [s.name, { state: stateOf(s), exits: { ...(s.exits || {}) } }]));
+  }
+
+  // ------------------------------------------------------------ palette --
+  // Ctrl-K: type what to do. Modules register providers that return
+  // { label, cli?, icon?, keys?, run }; every item shows its nk command, so
+  // the palette doubles as the CLI's cheat sheet.
+  const providers = [];
+  const commands = (fn) => providers.push(fn);
+  const pal = document.getElementById('palette'), palIn = document.getElementById('pal-in'), palList = document.getElementById('pal-list');
+  let palItems = [], palSel = 0;
+  function palRender() {
+    const q = palIn.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const all = providers.flatMap((f) => { try { return f() || []; } catch { return []; } });
+    palItems = all.filter((c) => { const hay = `${c.label} ${c.cli || ''} ${c.keys || ''}`.toLowerCase(); return q.every((w) => hay.includes(w)); }).slice(0, 14);
+    palSel = Math.min(palSel, Math.max(0, palItems.length - 1));
+    palList.innerHTML = palItems.length ? palItems.map((c, i) =>
+      `<div class="pal-item ${i === palSel ? 'on' : ''}" data-i="${i}"><span class="pal-ico">${c.icon || ''}</span><span class="pal-label">${esc(c.label)}</span>${c.cli ? `<code>$ ${esc(c.cli)}</code>` : ''}</div>`).join('')
+      : `<div class="pal-empty">${t('pal.empty')}</div>`;
+  }
+  function palOpen() { palIn.value = ''; palSel = 0; palRender(); pal.showModal(); palIn.focus(); }
+  function palRun(i) { const c = palItems[i]; if (!c) return; pal.close(); c.run(); }
+  palIn.oninput = () => { palSel = 0; palRender(); };
+  palIn.onkeydown = (ev) => {
+    if (ev.key === 'ArrowDown') { ev.preventDefault(); palSel = Math.min(palItems.length - 1, palSel + 1); palRender(); }
+    else if (ev.key === 'ArrowUp') { ev.preventDefault(); palSel = Math.max(0, palSel - 1); palRender(); }
+    else if (ev.key === 'Enter') { ev.preventDefault(); palRun(palSel); }
+  };
+  palList.onclick = (ev) => { const it = ev.target.closest('[data-i]'); if (it) palRun(+it.dataset.i); };
+  pal.addEventListener('click', (ev) => { if (ev.target === pal) pal.close(); });
+  document.getElementById('pal-btn').onclick = palOpen;
+  document.addEventListener('keydown', (ev) => {
+    if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && ev.key.toLowerCase() === 'k') { ev.preventDefault(); pal.open ? pal.close() : palOpen(); }
+  });
+  commands(() => mods.filter((m) => m.id !== mounted?.id).map((m) => ({
+    label: t('pal.go', { menu: label(m) }), icon: m.icon, keys: m.id, run: () => { location.hash = `#/${m.id}`; },
+  })));
+
+  return { register, api, toast, esc, home, icons, setActions, t, hue, color, stateOf, STATE, setBadge, notify, announce, commands,
+           get lang() { return lang; }, get HOME() { return HOME; } };
 })();
 </script>
 <script src="modules/stacks.js"></script>

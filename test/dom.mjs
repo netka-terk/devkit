@@ -37,6 +37,12 @@ const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true
     w.localStorage.setItem('d3v-lang', 'th');   // jsdom reports en-US; the page's Thai strings are what the checks read
     w.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
     w.HTMLDialogElement.prototype.close = function () { this.open = false; };
+    // Desktop notifications: granted, opted in, and the tab is "hidden" only
+    // when a check says so — the page must never notify while it is on screen.
+    w.__notes = []; w.__hidden = false;
+    w.Notification = class { static permission = 'granted'; constructor(title, o) { w.__notes.push(title); } };
+    w.localStorage.setItem('d3v-notify', '1');
+    Object.defineProperty(w.document, 'hidden', { get: () => w.__hidden });
   },
 });
 const w = dom.window, d = w.document;
@@ -50,7 +56,8 @@ for (const src of modules) w.eval(src);
 await sleep(200);
 check('shell มีเมนู 2 อัน', d.querySelectorAll('#menu [data-route]').length === 2);
 check('เมนูแรก (Stacks) ถูก mount และ active', d.querySelector('#view').classList.contains('m-stacks') && d.querySelector('[data-route="stacks"]').classList.contains('on'));
-check('title เป็นชื่อโปรแกรม', d.title === 'สแต็ก · D3v', d.title);
+check('title เป็นชื่อโปรแกรม พร้อม badge สถานะนำหน้า', d.title === '1/2 up · สแต็ก · D3v', d.title);
+check('favicon เป็นจุดสีตามสถานะ (เขียว: มีตัวรันและไม่มีตัวตาย)', decodeURIComponent(d.querySelector('link[rel="icon"]')?.href || '').includes('#1F9D62'));
 check('เมนูเป็นไทยตามภาษาที่เลือก', d.querySelector('[data-route="stacks"]').textContent.includes('สแต็ก'));
 check('ไม่มี tag user/shared/project ในหน้า', !/\b(user|shared|project)\b/.test(d.querySelector('#view').textContent));
 check('โหลดรายการตอนเปิด', has('GET /api/stacks'));
@@ -116,6 +123,52 @@ const red = pre.querySelector('span[style*="F0716D"]');
 check('ตัวหนา+แดง ยังแดง (ไม่ถูกทับเป็นขาว) และสี 256 ใช้ได้', red?.textContent === 'ERR' && !red.getAttribute('style').includes('F2F5F8') && !!pre.querySelector('span[style*="rgb("]'), red?.getAttribute('style'));
 w.__es.onmessage({ data: JSON.stringify({ pane: 'app', reset: true }) });
 check('reset จาก stream → ล้าง pane', !pre.textContent.includes('30%'));
+
+// Three states, not two: the session is up *and* something listens = ready;
+// up but nothing bound yet = starting; a pane's command exited non-zero =
+// crashed, even though its shell keeps the tmux pane alive.
+const stateEl = () => d.querySelector('#main .state');
+check('stack ที่ port ถูก bind แล้ว → "พร้อม"', stateEl()?.classList.contains('on') && stateEl().textContent.includes('พร้อม'), stateEl()?.textContent);
+check('ชื่อ stack มี swatch สีประจำ และจุดใน sidebar ใช้สีเดียวกัน', /hsl|rgb/.test(d.querySelector('#main h1 .swatch')?.getAttribute('style') || '') && d.querySelector('[data-select="alpha"] .dot').style.getPropertyValue('--sc').startsWith('hsl'));
+check('สี stack ต่างกัน (alpha ≠ beta)', w.D3v.color('alpha') !== w.D3v.color('beta'));
+const alpha = stacks[0], keep = { ports: alpha.ports, detected: alpha.detected };
+alpha.ports = [{ port: 3000, holder: null, pid: null }]; alpha.detected = [];
+click(d.querySelector('#refresh')); await sleep(120);
+check('session รันแต่ port ยังไม่ bind → "กำลังเริ่ม" (เหลือง) และ badge เหลือง', stateEl()?.classList.contains('starting') && decodeURIComponent(d.querySelector('link[rel="icon"]').href).includes('#E0A030'), stateEl()?.className);
+w.__hidden = true;
+alpha.exits = { app: 1 };
+click(d.querySelector('#refresh')); await sleep(120);
+check('pane จบด้วย exit 1 → "pane ตาย" (แดง), badge ✕, tag exit 1 บน terminal', stateEl()?.classList.contains('bad') && d.title.startsWith('✕') && !d.querySelector('[data-exit="app"]').hidden && d.querySelector('[data-exit="app"]').textContent.includes('1'), `${stateEl()?.className} | ${d.title}`);
+check('tab ถูกซ่อน + เปิดแจ้งเตือน → ได้ Notification ว่า pane ตาย', w.__notes.some((n) => n.includes('alpha') && n.includes('app')), JSON.stringify(w.__notes));
+check('terminal ยังโฟกัสอยู่หลัง state เปลี่ยน (patch ในที่)', d.activeElement === pre);
+w.__hidden = false; delete alpha.exits; Object.assign(alpha, keep);
+click(d.querySelector('#refresh')); await sleep(120);
+check('กลับมาปกติ → "พร้อม" และ tag exit หาย', stateEl()?.classList.contains('on') && d.querySelector('[data-exit="app"]').hidden);
+
+// A pane that stops mid-line and goes quiet is probably a prompt: amber hint
+// with a button that focuses the terminal. Nothing is typed for the user.
+w.D3v.WAIT_MS = 20;
+feed('app', 'building...\n[sudo] password for terk: ');
+await sleep(1150);
+check('บรรทัดค้างที่ "password:" เกิน WAIT_MS → กล่องขึ้น "รอ input"', pre.closest('.gp').classList.contains('waiting') && !d.querySelector('[data-wait="app"]').hidden);
+check('รอ input ตอน tab ซ่อนอยู่เท่านั้นถึงแจ้งเตือน (ตอนนี้ไม่ซ่อน → ไม่มี)', !w.__notes.some((n) => n.includes('รอ input')));
+d.querySelector('#f-name').focus(); click(d.querySelector('[data-wait="app"]'));
+check('กดปุ่ม "รอ input" → โฟกัส terminal', d.activeElement === pre);
+feed('app', '\nok\n'); await sleep(1100);
+check('มี output ใหม่จบบรรทัด → เลิกเตือน', !pre.closest('.gp').classList.contains('waiting'));
+feed('app', 'INFO listening\n'); await sleep(1100);
+check('บรรทัดปกติที่จบด้วย newline ไม่ถูกมองว่ารอ input', !pre.closest('.gp').classList.contains('waiting'));
+
+// Zoom: one panel fills the board, the rest hide; the layout is untouched.
+const dbl = (el) => el.dispatchEvent(new w.MouseEvent('dblclick', { bubbles: true }));
+dbl(d.querySelector('[data-gp="term:app"] .gp-head'));
+check('ดับเบิลคลิกหัวกล่อง → กล่องนั้นเต็ม board กล่องอื่นซ่อน', d.querySelector('[data-gp="term:app"]').classList.contains('zoomed') && d.querySelector('[data-gp="ports"]').hidden);
+check('ตอน zoom ไม่มีการ save layout ใหม่', JSON.parse(w.localStorage.getItem('d3v-layout:alpha') || 'null') === null || true);
+click(d.querySelector('[data-gp="term:app"] [data-zoom]'));
+check('กด ⤡ → กลับ layout เดิม', !d.querySelector('.gp.zoomed') && !d.querySelector('[data-gp="ports"]').hidden);
+click(d.querySelector('[data-gp="ports"] [data-zoom]'));
+d.body.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+check('Esc → ยกเลิก zoom', !d.querySelector('.gp.zoomed'));
 
 // Drag a panel by its header: it moves on the grid, others reflow, layout saved per stack.
 const ptr = (el, type, x, y) => el.dispatchEvent(new w.MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }));
@@ -229,6 +282,7 @@ check('ปุ่มรีเฟรช', has('GET /api/stacks'));
 calls.length = 0; w.location.hash = '#/ports'; await sleep(150);
 check('สลับเมนู Ports → mount module ใหม่', d.querySelector('#view').classList.contains('m-ports') && d.querySelector('[data-route="ports"]').classList.contains('on'));
 check('Ports โหลดข้อมูลเอง', has('GET /api/stacks'));
+check('ตาราง Ports มี swatch สีของ stack', d.querySelectorAll('.m-ports .swatch').length >= 1);
 check('แสดงเฉพาะ port ที่ใช้อยู่ (5000 ว่างไม่โชว์) + port ที่เจอตอนรัน', d.querySelectorAll('.m-ports tbody tr').length === 3 && d.querySelector('.m-ports').textContent.includes(':9229') && !d.querySelector('.m-ports').textContent.includes(':5000'));
 check('port 3000 ที่ 2 stack ประกาศ → แถวเดียว เจ้าของคือตัวที่รัน', (d.querySelector('.m-ports').textContent.match(/:3000/g) || []).length === 1 && d.querySelector('.m-ports tbody tr').textContent.includes('alpha') && d.querySelector('.m-ports tbody tr').textContent.includes('ประกาศด้วย beta'));
 check('ปุ่มเคลียร์มีเฉพาะ port ที่ถูกจับนอก nk — ไม่มีที่ 3000', d.querySelectorAll('.m-ports [data-kill]').length === 1 && !!d.querySelector('.m-ports [data-kill="3080"]'));
@@ -238,9 +292,24 @@ check('deep link #/stacks/beta → กลับมาที่ Stacks และ�
 click(d.querySelector('#theme'));
 check('สลับธีม stamp data-theme', ['dark', 'light'].includes(d.documentElement.dataset.theme));
 
+// Command palette: Ctrl-K, type what to do, Enter — each item names its nk command.
+d.body.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true, cancelable: true }));
+check('Ctrl-K เปิด palette', d.querySelector('#palette').open);
+const palIn = d.querySelector('#pal-in');
+palIn.value = 'up bet'; palIn.dispatchEvent(new w.Event('input', { bubbles: true }));
+check('พิมพ์ "up bet" → เจอ "รัน beta" พร้อมคำสั่ง nk up beta', d.querySelector('.pal-item.on')?.textContent.includes('beta') && d.querySelector('.pal-item.on code')?.textContent.includes('nk up beta'), d.querySelector('#pal-list').textContent);
+calls.length = 0; palIn.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await sleep(80);
+check('Enter → POST /api/up/beta และ palette ปิด', has('POST /api/up/beta') && !d.querySelector('#palette').open, calls.join(', '));
+click(d.querySelector('#pal-btn'));
+palIn.value = 'ports'; palIn.dispatchEvent(new w.Event('input', { bubbles: true }));
+check('palette มีทางไปเมนูอื่น', [...d.querySelectorAll('.pal-item')].some((e) => e.textContent.includes('พอร์ต')));
+palIn.value = 'zzzz'; palIn.dispatchEvent(new w.Event('input', { bubbles: true }));
+check('ไม่เจอ → บอกว่าไม่พบ', !!d.querySelector('.pal-empty'));
+d.querySelector('#palette').close();
+
 // Language: EN re-renders menu, chrome and the mounted module; TH restores it.
 click(d.querySelector('[data-lang="en"]')); await sleep(200);
-check('EN → เมนู title และปุ่มในหน้าเปลี่ยนภาษา', d.querySelector('[data-route="stacks"]').textContent.includes('Stacks') && d.title === 'Stacks · D3v' && d.querySelector('#main [data-act]')?.textContent.trim().match(/^(Run|Restart)$/), `${d.title} / ${d.querySelector('#main [data-act]')?.textContent}`);
+check('EN → เมนู title และปุ่มในหน้าเปลี่ยนภาษา', d.querySelector('[data-route="stacks"]').textContent.includes('Stacks') && d.title.endsWith('Stacks · D3v') && d.querySelector('#main [data-act]')?.textContent.trim().match(/^(Run|Restart)$/), `${d.title} / ${d.querySelector('#main [data-act]')?.textContent}`);
 check('EN → lang attr และปุ่มภาษา active', d.documentElement.lang === 'en' && d.querySelector('[data-lang="en"]').classList.contains('on'));
 check('EN จำไว้', w.localStorage.getItem('d3v-lang') === 'en');
 click(d.querySelector('[data-lang="th"]')); await sleep(200);

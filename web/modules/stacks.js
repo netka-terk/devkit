@@ -3,12 +3,12 @@
 // tmux pane) sits on a 12-column grid and can be dragged and resized, Grafana
 // style. Layouts are kept per stack in localStorage.
 (() => {
-  const { api, toast, esc, home, icons: ICON, t } = D3v;
+  const { api, toast, esc, home, icons: ICON, t, color, stateOf, STATE } = D3v;
 
   let root = null, $ = null;
   let stacks = [], selected = null, pendingSelect = null;
   const busy = new Set();
-  let timer = null, onKey = null, onResize = null;
+  let timer = null, waitTimer = null, onKey = null, onResize = null;
 
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   const saved = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -112,8 +112,9 @@
           (owner ? t('st.port.busy.by', { stack: owner.name, me: s.name }) : t('st.port.busy.ext', { me: s.name }));
       }).join('\n');
       const bang = held.length ? `<span class="bang" title="${esc(reason)}" aria-label="${esc(reason)}">!</span>` : '';
+      const [, cls] = STATE[stateOf(s)];
       return `<button class="item ${s.name === selected ? 'on' : ''}" data-select="${esc(s.name)}">
-        <span class="dot ${s.running ? 'on' : ''}"></span>
+        <span class="dot ${cls}" style="--sc:${color(s.name)}"></span>
         <span class="nm"><span>${esc(s.name)}</span></span>
         ${bang}
       </button>`;
@@ -146,6 +147,7 @@
     if (main.dataset.key === key && $('#board')) {
       $('.d-head').innerHTML = headHtml(s);
       patchPanels(s);
+      paintExits(s);
       const wasRunning = main.dataset.running === '1';
       main.dataset.running = s.running ? '1' : '0';
       setLive(!!es && es.readyState === 1, s.running ? undefined : t('term.last'));
@@ -154,6 +156,7 @@
     }
     main.dataset.key = key;
     main.dataset.running = s.running ? '1' : '0';
+    zoom = null;
 
     main.innerHTML = `
       <section class="detail">
@@ -173,6 +176,20 @@
     renderBoard(s);
     wireDrawer();
     attachTerm(s.name);
+    paintExits(s);
+  }
+
+  // paintExits — the "exit N" tag on a terminal whose command has finished.
+  // Terminal panels are never rebuilt on a poll, so this updates them in place.
+  function paintExits(s) {
+    for (const el of root.querySelectorAll('[data-exit]')) {
+      const code = (s.exits || {})[el.dataset.exit];
+      el.hidden = code == null;
+      if (code == null) continue;
+      el.textContent = t('st.exit', { code });
+      el.title = t('st.exit.title', { code });
+      el.classList.toggle('bad', code !== 0);
+    }
   }
 
   function headHtml(s) {
@@ -182,10 +199,12 @@
     const actions = s.running
       ? act('restart', t('st.restart'), ICON.cycle) + act('down', t('st.stop'), ICON.stop, 'danger')
       : act('up', t('st.run'), ICON.play, 'primary');
+    const st = stateOf(s), [labelKey, cls] = STATE[st];
+    const title = STATE[st] && t(`st.state.title.${st}`) !== `st.state.title.${st}` ? t(`st.state.title.${st}`) : '';
     return `
       <div class="d-title">
-        <h1>${esc(s.name)}
-          <span class="state ${s.running ? 'on' : ''}"><span class="dot"></span>${s.running ? t('st.running') : t('st.stopped')}</span>
+        <h1><span class="swatch" style="background:${color(s.name)}"></span>${esc(s.name)}
+          <span class="state ${cls}" title="${esc(title)}"><span class="dot"></span>${t(labelKey)}</span>
         </h1>
         <div class="path">${esc(home(s.dir))}${s.url ? ` &nbsp;·&nbsp; <a class="link" href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)} ${ICON.ext}</a>` : ''}</div>
       </div>
@@ -343,20 +362,35 @@
     return Math.max(ROW_MIN, (avail - (rows - 1) * GAP) / rows);
   }
 
+  // One panel can take the whole board (double-click its header, or ⤢): the
+  // others hide until it is toggled back. The layout itself is untouched.
+  let zoom = null;
+  function toggleZoom(id) { zoom = zoom === id ? null : id; applyPositions(); }
+
   function applyPositions() {
     const board = $('#board'); if (!board) return;
     const rows = layout.reduce((m, it) => Math.max(m, it.y + it.h), 0);
     rowH = fitRows(rows);
+    if (zoom && !layout.some((it) => it.id === zoom)) zoom = null;
     for (const it of layout) {
       const el = board.querySelector(`[data-gp="${CSS_escape(it.id)}"]`);
-      if (el && !(drag && drag.item === it && drag.kind === 'move')) place(el, it);
+      if (!el) continue;
+      const z = zoom === it.id;
+      el.hidden = !!zoom && !z;
+      el.classList.toggle('zoomed', z);
+      const zb = el.querySelector('[data-zoom]');
+      if (zb) { zb.textContent = z ? '⤡' : '⤢'; zb.title = zb.ariaLabel = t(z ? 'ui.unzoom' : 'ui.zoom'); }
+      if (z) { el.style.left = '0'; el.style.right = '0'; el.style.top = '0'; el.style.height = `${board.clientHeight}px`; continue; }
+      if (!(drag && drag.item === it && drag.kind === 'move')) place(el, it);
     }
+    if (zoom) { board.classList.remove('overflowing'); return; }
     // Only when the rows hit ROW_MIN can the content outgrow one screen.
     board.classList.toggle('overflowing', rows * (rowH + GAP) - GAP > board.clientHeight + 1);
   }
   const CSS_escape = (s) => s.replace(/["\\]/g, '\\$&');
 
   const closeBtn = (it) =>
+    `<button class="gp-x" data-zoom="${esc(it.id)}" title="${esc(t('ui.zoom'))}" aria-label="${esc(t('ui.zoom'))}">⤢</button>` +
     `<button class="gp-x" data-remove="${esc(it.id)}" title="${esc(t('ui.remove.panel'))}" aria-label="${esc(t('ui.remove.panel'))}">✕</button>`;
 
   function panelParts(s, it) {
@@ -395,6 +429,8 @@
       cls = 'term';
       title = `<span class="mono">${esc(pane)}</span>`;
       extra = `<span class="live"><span class="dot"></span><span class="livetext">${t('term.connecting')}</span></span>
+               <span class="tag exit" data-exit="${esc(pane)}" hidden></span>
+               <button class="tbtn wait" data-wait="${esc(pane)}" hidden title="${esc(t('st.waiting.title'))}">${t('st.waiting')}</button>
                <label><input type="checkbox" data-follow="${esc(pane)}" checked> ${t('term.follow')}</label>
                <button class="tbtn" data-clear="${esc(pane)}" title="${esc(t('term.clear.pane'))}">${t('term.clear')}</button>`;
       body = `<pre class="term" data-pre="${esc(pane)}" tabindex="0" role="textbox"
@@ -405,7 +441,7 @@
 
   function panelHtml(s, it) {
     const { title, body, cls, extra } = panelParts(s, it);
-    return `<section class="gp ${cls}" data-gp="${esc(it.id)}">
+    return `<section class="gp ${cls}" data-gp="${esc(it.id)}" style="--sc:${color(s.name)}">
       <header class="gp-head" title="${esc(t('ui.drag.panel'))}"><span class="gp-title">${title}</span><span class="gp-tools">${extra}${closeBtn(it)}</span></header>
       <div class="gp-body">${body}</div>
       <span class="gp-resize" data-resize title="${esc(t('ui.drag'))}"></span>
@@ -443,7 +479,7 @@
   // where there is no layout engine (tests), so the grid snapping still works.
   function onBoardPointerDown(ev) {
     if (ev.button != null && ev.button !== 0) return;
-    const gp = ev.target.closest('.gp'); if (!gp) return;
+    const gp = ev.target.closest('.gp'); if (!gp || zoom) return;
     const resize = ev.target.closest('[data-resize]');
     const head = ev.target.closest('.gp-head');
     if (!resize && (!head || ev.target.closest('button, input, a, label'))) return;
@@ -526,6 +562,7 @@
     if (!root) return;
     try {
       const list = await api('/api/stacks');
+      D3v.announce(list);
       const prev = Object.fromEntries(stacks.map((s) => [s.name, s.panes]));
       stacks = list.map((s) => ({ ...s, panes: prev[s.name] }));
       if (pendingSelect && stacks.some((s) => s.name === pendingSelect)) selected = pendingSelect;
@@ -557,6 +594,10 @@
 
   // ------------------------------------------------------------ actions --
   const DONE = { up: 'st.done.up', down: 'st.done.down', restart: 'st.done.restart' };
+  function doAct(name, verb) {
+    if (verb === 'down' && !confirm(t('st.confirm.stop', { name }))) return;
+    return act(name, verb);
+  }
   async function act(name, verb) {
     busy.add(name); render();
     try {
@@ -586,7 +627,30 @@
   // ----------------------------------------------------------- terminal --
   // tmux pipe-pane mirrors each pane into a file; the server tails those over
   // SSE, so this only appends and renders ANSI into that pane's panel.
-  let es = null, termFor = null, panes = new Map();
+  let es = null, termFor = null, panes = new Map(), lastOut = new Map();
+
+  // A pane that stops mid-line and stays quiet is most likely at a prompt —
+  // sudo's password, a y/n question. That is a hint, not a diagnosis: the
+  // panel turns amber with a "waiting for input" button that focuses it, and
+  // nothing is typed on the user's behalf.
+  const PROMPT_RE = /(?:[:?]|\(y\/n\)|\[y\/n\]|\[y\/N\]|\[Y\/n\]|password)\s*$/i;
+  function checkWaiting() {
+    if (!root) return;
+    const s = stacks.find((x) => x.name === termFor);
+    for (const pre of root.querySelectorAll('[data-pre]')) {
+      const pane = pre.dataset.pre, gp = pre.closest('.gp');
+      const buf = panes.get(pane) || '';
+      const tail = plainText(buf.slice(-600)).replace(/\x1b\[[0-9;]*m/g, '');
+      const lastLine = tail.slice(tail.lastIndexOf('\n') + 1);
+      const idle = Date.now() - (lastOut.get(pane) || 0);
+      const waiting = !!s?.running && !((s.exits || {})[pane] != null) && lastOut.has(pane) &&
+        idle > (D3v.WAIT_MS ?? 3000) && lastLine.trim().length > 0 && lastLine.length < 200 &&
+        !tail.endsWith('\n') && PROMPT_RE.test(lastLine.trimEnd());
+      if (waiting && !gp.classList.contains('waiting')) D3v.notify(t('st.notify.wait', { name: termFor, pane }), lastLine.trim());
+      gp.classList.toggle('waiting', waiting);
+      const b = gp.querySelector('[data-wait]'); if (b) b.hidden = !waiting;
+    }
+  }
 
   const SGR = {
     30:'#5E6875',31:'#F0716D',32:'#3CCB85',33:'#F0B44A',34:'#5B93FF',35:'#C792EA',
@@ -661,13 +725,14 @@
   function attachTerm(name) {
     if (termFor !== name) {
       if (es) es.close();
-      panes = new Map(); termFor = name;
+      panes = new Map(); lastOut = new Map(); termFor = name;
       es = new EventSource(`/api/stream/${encodeURIComponent(name)}`);
       es.onopen = () => setLive(true);
       es.onerror = () => setLive(false, t('term.retry'));
       es.onmessage = (ev) => {
         let m; try { m = JSON.parse(ev.data); } catch { return; }
         if (m.reset) { panes.set(m.pane, ''); paint(m.pane); return; }
+        lastOut.set(m.pane, Date.now());
         let buf = (panes.get(m.pane) || '') + m.text;
         if (buf.length > 400000) buf = buf.slice(-300000);
         panes.set(m.pane, buf);
@@ -904,6 +969,10 @@
     if (ev.target.closest('#drawer-close')) return closeDrawer();
     const rm = ev.target.closest('[data-remove]');
     if (rm) return removePanel(rm.dataset.remove);
+    const zm = ev.target.closest('[data-zoom]');
+    if (zm) return toggleZoom(zm.dataset.zoom);
+    const wt = ev.target.closest('[data-wait]');
+    if (wt) return root.querySelector(`[data-pre="${CSS_escape(wt.dataset.wait)}"]`)?.focus();
     const clear = ev.target.closest('[data-clear]');
     if (clear) { panes.set(clear.dataset.clear, ''); return paint(clear.dataset.clear); }
     const kill = ev.target.closest('[data-kill]');
@@ -913,9 +982,28 @@
     if (!btn || !selected) return;
     const verb = btn.dataset.act;
     if (verb === 'edit') return editStack(selected);
-    if (verb === 'down' && !confirm(t('st.confirm.stop', { name: selected }))) return;
-    act(selected, verb);
+    doAct(selected, verb);
   }
+
+  // The palette's view of this module: open, run, stop, restart and edit
+  // every stack, clear a port held outside nk, and a new stack — each with
+  // the nk command it stands for.
+  D3v.commands(() => {
+    if (!root) return [];
+    const items = [];
+    for (const s of stacks) {
+      items.push({ label: t('pal.open', { name: s.name }), icon: ICON.stack, keys: s.name, run: () => select(s.name) });
+      if (s.running) items.push(
+        { label: `${t('st.restart')} ${s.name}`, cli: `nk restart ${s.name}`, icon: ICON.cycle, run: () => doAct(s.name, 'restart') },
+        { label: `${t('st.stop')} ${s.name}`, cli: `nk down ${s.name}`, icon: ICON.stop, run: () => doAct(s.name, 'down') });
+      else items.push({ label: `${t('st.run')} ${s.name}`, cli: `nk up ${s.name}`, icon: ICON.play, run: () => doAct(s.name, 'up') });
+      items.push({ label: `${t('st.edit')} ${s.name}`, icon: ICON.edit, run: () => editStack(s.name) });
+      if (!s.running) for (const p of s.ports) if (p.pid != null)
+        items.push({ label: `${t('st.clear')} :${p.port} · ${p.holder}`, cli: `nk kill ${p.port}`, icon: ICON.port, run: () => killPort(p.port) });
+    }
+    items.push({ label: t('st.new'), icon: ICON.plus, keys: 'new init', run: () => openEditor(null) });
+    return items;
+  });
 
   // ------------------------------------------------------------- module --
   D3v.register({
@@ -929,8 +1017,13 @@
       wireSideGutter();
       wireEditor();
       root.addEventListener('click', onClick);
+      root.addEventListener('dblclick', (ev) => {
+        const head = ev.target.closest('.gp-head');
+        if (head && !ev.target.closest('button, input, a, label')) toggleZoom(head.closest('.gp').dataset.gp);
+      });
       onKey = (ev) => {
         if (dlg.open || ev.defaultPrevented || ev.target.matches('input') || ev.target.closest('[data-pre]')) return;
+        if (ev.key === 'Escape' && zoom) return toggleZoom(zoom);
         const i = stacks.findIndex((s) => s.name === selected);
         if (ev.key === 'ArrowDown' && i < stacks.length - 1) select(stacks[i + 1].name);
         if (ev.key === 'ArrowUp' && i > 0) select(stacks[i - 1].name);
@@ -941,18 +1034,20 @@
       onResize = () => applyPositions();
       addEventListener('resize', onResize);
       timer = setInterval(() => { if (!document.hidden && !dlg.open && !drag) refresh(); }, 4000);
+      waitTimer = setInterval(checkWaiting, 1000);
       refresh();
     },
     navigate(param) { if (param && param !== selected) select(param); },
     refresh,
     unmount() {
       clearInterval(timer); timer = null;
+      clearInterval(waitTimer); waitTimer = null;
       document.removeEventListener('keydown', onKey);
       removeEventListener('resize', onResize);
       document.removeEventListener('pointermove', onBoardPointerMove);
       document.removeEventListener('pointerup', onBoardPointerUp);
       if (es) { es.close(); es = null; }
-      termFor = null; panes = new Map(); drag = null; outbox.length = 0;
+      termFor = null; panes = new Map(); lastOut = new Map(); drag = null; zoom = null; outbox.length = 0;
       D3v.setActions('');
       root = null; $ = null;
     },

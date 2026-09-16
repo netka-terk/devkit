@@ -81,7 +81,31 @@ Stacks in detail:
   function — takes the password from there rather than prompting. Prompt
   scraping would be a guess; this is what sudo provides for the purpose.
   A `NOPASSWD` sudoers rule for just that command is safer and needs no stored
-  password; the editor says so next to the field.
+  password: `nk nopass setcap` installs one (`/etc/sudoers.d/nk-<user>-setcap`,
+  checked with `visudo -c`, sudo asks once to write it) and the editor points
+  there.
+- **Three states, not two**: a stack is *starting* while its session is up but
+  nothing listens on a port yet, *ready* once something does, and *pane died*
+  when a pane's command exited non-zero — the wrapper records the exit code, so
+  a crash no longer hides behind a shell that tmux keeps alive. The terminal
+  shows an `exit N` tag, the sidebar dot pulses or turns red, and the tab title
+  and favicon carry the summary (`2/4 up`, a coloured dot) for when another
+  window has the attention. The bell in the top bar opts into desktop
+  notifications — only while the tab is hidden — for a pane dying, a stack
+  becoming ready, or a pane waiting for input.
+- **A pane waiting for input** (stopped mid-line at `password:` or `y/n` and
+  quiet for a few seconds) turns amber with a "waiting for input" button that
+  focuses the terminal. It is a hint from the output, never an answer typed on
+  the user's behalf.
+- **One colour per stack**, from a hash of its name: the sidebar dot, the
+  heading swatch, panel headers and the Ports table all use it, and `nk up`
+  paints the tmux borders and status bar the same hue, so an attached session
+  is recognisable at a glance.
+- **Command palette** (`Ctrl-K`, or the "Commands" button): type what to do —
+  `up grafana`, `kill 3080`, `ports` — and press Enter. Every item shows the
+  `nk` command it stands for, so the palette doubles as the CLI cheat sheet.
+- **Zoom**: double-click a panel header (or its ⤢) and it fills the board;
+  again, or `Esc`, brings the layout back.
 - **Board layout**: the stack page is a 12-column grid that always fills one
   screen — the row unit is derived from the space available, so the panels scale
   with the window instead of the page scrolling. Every panel (ports, commands,
@@ -110,6 +134,7 @@ copies any that are missing, once, and never overwrites.
     nk send <stack> <pane> --text "y" | --key Enter   # type into a running pane
     nk secret <stack> set    # store the sudo password (read from stdin)
     nk secret <stack> clear
+    nk nopass setcap         # better: let `sudo setcap` run without a password at all
 
 ## Stack file contract
 
