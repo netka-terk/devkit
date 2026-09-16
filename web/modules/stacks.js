@@ -72,15 +72,22 @@
     D3v.setActions(`<button class="btn primary" id="new">${ICON.plus} ${t('st.new')}</button>`);
     document.getElementById('new').onclick = () => openEditor(null);
 
+    // A stopped stack whose port is already taken gets a "!" with the reason on
+    // hover: which port, which process, and what pressing Run would do to it.
+    const ownerOf = (port) => stacks.find((o) => o.running &&
+      (o.ports.some((p) => p.port === port) || (o.detected || []).some((p) => p.port === port)));
     $('#list').innerHTML = stacks.map((s) => {
-      const heldPorts = s.ports.filter((p) => p.pid != null);
-      const all = [...new Set([...s.ports.map((p) => p.port), ...(s.detected || []).map((p) => p.port)])];
-      const pt = all.length
-        ? `<span class="pt ${heldPorts.length && !s.running ? 'held' : ''}">${esc(all.join(' '))}</span>` : '';
+      const held = s.running ? [] : s.ports.filter((p) => p.pid != null);
+      const reason = held.map((p) => {
+        const owner = ownerOf(p.port);
+        return t('st.port.busy', { port: p.port, holder: p.holder, pid: p.pid }) + ' ' +
+          (owner ? t('st.port.busy.by', { stack: owner.name, me: s.name }) : t('st.port.busy.ext', { me: s.name }));
+      }).join('\n');
+      const bang = held.length ? `<span class="bang" title="${esc(reason)}" aria-label="${esc(reason)}">!</span>` : '';
       return `<button class="item ${s.name === selected ? 'on' : ''}" data-select="${esc(s.name)}">
         <span class="dot ${s.running ? 'on' : ''}"></span>
         <span class="nm"><span>${esc(s.name)}</span></span>
-        ${pt}
+        ${bang}
       </button>`;
     }).join('');
 

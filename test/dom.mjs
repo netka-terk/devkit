@@ -55,6 +55,12 @@ check('เมนูเป็นไทยตามภาษาที่เลื�
 check('ไม่มี tag user/shared/project ในหน้า', !/\b(user|shared|project)\b/.test(d.querySelector('#view').textContent));
 check('โหลดรายการตอนเปิด', has('GET /api/stacks'));
 check('sidebar มี 2 stack', d.querySelectorAll('[data-select]').length === 2);
+check('sidebar ไม่มีเลข port', !/\d{4}/.test(d.querySelector('#list').textContent));
+check('stack ที่หยุดและ port ถูกใช้ ขึ้น ! พร้อมเหตุผลตอน hover', (() => {
+  const b = d.querySelector('[data-select="beta"] .bang'); const ttl = b?.title || '';
+  return !!b && ttl.includes('3080') && ttl.includes('stray') && ttl.includes('3000') && ttl.includes('alpha');
+})(), d.querySelector('[data-select="beta"] .bang')?.title);
+check('stack ที่รันอยู่ไม่มี !', !d.querySelector('[data-select="alpha"] .bang'));
 check('เลือกตัวแรกให้เองและเปิด terminal stream', has('SSE /api/stream/alpha'));
 check('หัวเรื่องเป็นชื่อ stack', d.querySelector('#main h1')?.textContent.includes('alpha'));
 check('stack ที่รันอยู่มีปุ่ม รีสตาร์ท/หยุด', !!d.querySelector('[data-act="restart"]') && !!d.querySelector('[data-act="down"]'));

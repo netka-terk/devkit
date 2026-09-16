@@ -140,8 +140,11 @@
   .item .nm { font-weight: 500; display: flex; align-items: baseline; gap: 8px; min-width: 0; }
   .item .nm span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .item .nm small { color: var(--faint); font-size: 11px; font-weight: 400; }
-  .item .pt { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
-  .item .pt.held { color: var(--warn); }
+  .item .bang {
+    width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center;
+    font: 600 12px var(--mono); color: var(--warn); background: var(--warn-soft);
+    cursor: help;
+  }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); justify-self: center; }
   .dot.on { background: var(--good); box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 22%, transparent); }
   .side-foot { margin-top: auto; padding: 10px 16px 14px; font-size: 12px; color: var(--faint); border-top: 1px solid var(--line); }
@@ -409,6 +412,9 @@ window.D3v = (() => {
     'st.kill.fail': ['เคลียร์ port {port} ไม่สำเร็จ', 'Could not clear port {port}'],
     'st.load.fail': ['โหลดรายการ stack ไม่ได้', 'Could not load stacks'],
     'st.confirm.stop': ['หยุด {name}?', 'Stop {name}?'],
+    'st.port.busy': ['port {port} ถูกใช้อยู่โดย {holder} (pid {pid})', 'Port {port} is in use by {holder} (pid {pid})'],
+    'st.port.busy.by': ['— {stack} กำลังรัน ถ้ารัน {me} จะหยุด {stack} ก่อน', '— {stack} is running; running {me} will stop {stack} first'],
+    'st.port.busy.ext': ['— ไม่ได้รันผ่าน nk ถ้ารัน {me} จะปิด process นั้นก่อน', '— not started by nk; running {me} will close that process first'],
 
     'term.title': ['Terminal', 'Terminal'],
     'term.connecting': ['กำลังต่อ…', 'connecting…'], 'term.live': ['live', 'live'], 'term.off': ['ไม่ได้ต่อ', 'disconnected'],
