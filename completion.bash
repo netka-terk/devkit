@@ -3,7 +3,7 @@ _nk_complete() {
   local cur prev cmds stacks
   cur=${COMP_WORDS[COMP_CWORD]}
   prev=${COMP_WORDS[COMP_CWORD-1]}
-  cmds="up down restart status attach logs kill list init token curl mk help"
+  cmds="up down restart status attach logs kill list init rename ports token curl mk web help"
 
   if [ "$COMP_CWORD" -eq 1 ]; then
     mapfile -t COMPREPLY < <(compgen -W "$cmds" -- "$cur")

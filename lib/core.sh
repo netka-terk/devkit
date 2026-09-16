@@ -3,7 +3,6 @@
 
 NK_ROOT="${NK_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 NK_HOME="${NK_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/nk}"
-NK_PROJECT_DIRNAME="${NK_PROJECT_DIRNAME:-.nk}"
 NK_PREFIX="nk-"
 
 # ---------------------------------------------------------------- output ----
@@ -22,106 +21,31 @@ dim()  { printf '%s%s%s\n' "$C_DIM" "$*" "$C_0"; }
 
 # --------------------------------------------------------- stack lookup ----
 #
-# Stacks are plain shell files found in three places, project first so a repo
-# can override a shared definition:
-#
-#   1. <project>/.nk/*.sh   — committed with the repo, no absolute paths needed
-#   2. ~/.config/nk/stacks  — personal, machine-specific
-#   3. <devkit>/stacks      — shared defaults shipped with this checkout
+# Every stack is one shell file in a single directory. No layering, no
+# overrides: what you see in `nk list` is exactly what is in that folder.
+NK_STACKS_DIR="${NK_STACKS_DIR:-$NK_HOME/stacks}"
 
-# nk_project_root [dir] — nearest ancestor holding .nk/, else the git root,
-# else the starting directory.
-nk_project_root() {
-  local d="${1:-$PWD}"
-  d=$(cd "$d" 2>/dev/null && pwd) || { printf '%s' "${1:-$PWD}"; return; }
-  local start=$d
-  while [ "$d" != / ]; do
-    [ -d "$d/$NK_PROJECT_DIRNAME" ] && { printf '%s' "$d"; return; }
-    d=$(dirname "$d")
-  done
-  d=$start
-  while [ "$d" != / ]; do
-    [ -e "$d/.git" ] && { printf '%s' "$d"; return; }
-    d=$(dirname "$d")
-  done
-  printf '%s' "$start"
-}
+nk_stack_file() { printf '%s' "$NK_STACKS_DIR/$1.sh"; [ -f "$NK_STACKS_DIR/$1.sh" ]; }
 
-# Registered projects: one root per line. Their .nk/ directories are searched
-# from anywhere, so the console shows every project's stacks no matter where
-# it was started. `nk init` and the console's "ย้ายไป project" register a root.
-NK_PROJECTS_FILE="$NK_HOME/projects"
-
-nk_projects() { [ -f "$NK_PROJECTS_FILE" ] && awk 'NF && !seen[$0]++' "$NK_PROJECTS_FILE"; return 0; }
-
-nk_project_add() {
-  local d; d=$(cd "$1" 2>/dev/null && pwd) || return 1
-  mkdir -p "$NK_HOME"
-  nk_projects | awk -v d="$d" '$0 == d { f = 1 } END { exit !f }' && return 0
-  printf '%s\n' "$d" >> "$NK_PROJECTS_FILE"
-}
-
-nk_project_rm() {
-  [ -f "$NK_PROJECTS_FILE" ] || return 0
-  local d; d=$(cd "$1" 2>/dev/null && pwd) || d=$1
-  awk -v d="$d" '$0 != d' "$NK_PROJECTS_FILE" > "$NK_PROJECTS_FILE.tmp" &&
-    mv "$NK_PROJECTS_FILE.tmp" "$NK_PROJECTS_FILE"
-}
-
-# nk_search_dirs — stack directories in priority order: the project we are in,
-# every registered project, the user's own, then the shared defaults.
-nk_search_dirs() {
-  local proj d; proj=$(nk_project_root)
-  {
-    [ -d "$proj/$NK_PROJECT_DIRNAME" ] && printf '%s\n' "$proj/$NK_PROJECT_DIRNAME"
-    while read -r d; do
-      [ -n "$d" ] && [ -d "$d/$NK_PROJECT_DIRNAME" ] && printf '%s\n' "$d/$NK_PROJECT_DIRNAME"
-    done < <(nk_projects)
-    [ -d "$NK_HOME/stacks" ] && printf '%s\n' "$NK_HOME/stacks"
-    [ -d "$NK_ROOT/stacks" ] && printf '%s\n' "$NK_ROOT/stacks"
-  } | awk '!seen[$0]++'
-  return 0
-}
-
-# nk_stack_file <name> — path to the winning definition, empty if none.
-nk_stack_file() {
-  local name=$1 d
-  while read -r d; do
-    [ -n "$d" ] || continue
-    [ -f "$d/$name.sh" ] && { printf '%s' "$d/$name.sh"; return 0; }
-  done < <(nk_search_dirs)
-  return 1
-}
-
-# nk_stacks — every stack name reachable from here, each listed once.
+# nk_stacks — every stack name, sorted.
 nk_stacks() {
-  local d f n
-  while read -r d; do
-    [ -n "$d" ] || continue
-    for f in "$d"/*.sh; do
-      [ -e "$f" ] || continue
-      n=$(basename "$f" .sh)
-      case "$n" in _*) continue ;; esac
-      printf '%s\n' "$n"
-    done
-  done < <(nk_search_dirs) | awk '!seen[$0]++'
+  local f
+  for f in "$NK_STACKS_DIR"/*.sh; do
+    [ -e "$f" ] || continue
+    basename "$f" .sh
+  done
 }
 
 # nk_load <stack> — source a stack definition into the current shell. Clears
 # the NK_* contract first so one load cannot leak into the next.
 nk_load() {
-  local name=$1 file dir
+  local name=$1 file
   file=$(nk_stack_file "$name") ||
     die "ไม่รู้จัก stack '$name' (ดูรายการด้วย: nk list)"
 
   NK_NAME=$name NK_DIR= NK_PORTS= NK_URL= NK_ENV_FILE= NK_NOTE=
   NK_API_BASE= NK_TOKEN_CMD= NK_FILE=$file
   NK_PANES=()
-
-  # A stack living in <project>/.nk defaults to that project root, so repo
-  # definitions stay free of absolute paths and work on any machine.
-  dir=$(dirname "$file")
-  [ "$(basename "$dir")" = "$NK_PROJECT_DIRNAME" ] && NK_DIR=$(dirname "$dir")
 
   # shellcheck disable=SC1090
   . "$file"
@@ -132,20 +56,17 @@ nk_load() {
   [ ${#NK_PANES[@]} -gt 0 ] || die "$name: ไม่ได้ตั้ง NK_PANES ($file)"
 }
 
-# nk_resolve_stack — the stack that token/curl/mk should act on:
-# an explicit argument, else $NK_STACK, else the only project-local stack.
+# nk_resolve_stack — the stack that token/curl/mk act on: an explicit name,
+# else $NK_STACK, else the one stack whose NK_DIR contains the current directory.
 nk_resolve_stack() {
   [ -n "${1:-}" ] && { printf '%s' "$1"; return 0; }
   [ -n "${NK_STACK:-}" ] && { printf '%s' "$NK_STACK"; return 0; }
-
-  local proj found n
-  proj=$(nk_project_root)
-  if [ -d "$proj/$NK_PROJECT_DIRNAME" ]; then
-    found=$(cd "$proj/$NK_PROJECT_DIRNAME" && ls ./*.sh 2>/dev/null |
-      sed 's@^\./@@;s@\.sh$@@')
-    n=$(printf '%s\n' "$found" | grep -c .) || true
-    [ "$n" = 1 ] && { printf '%s' "$found"; return 0; }
-  fi
+  local name here=$PWD hits= n=0
+  for name in $(nk_stacks); do
+    ( nk_load "$name" >/dev/null 2>&1 || exit 1
+      case "$here/" in "$NK_DIR"/*) exit 0 ;; esac; exit 1 ) && { hits=$name; n=$((n+1)); }
+  done
+  [ "$n" = 1 ] && { printf '%s' "$hits"; return 0; }
   return 1
 }
 

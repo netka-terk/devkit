@@ -17,13 +17,14 @@ const stacks = [
     ports: [{ port: 3080, holder: 'stray', pid: 99 }, { port: 5000, holder: null, pid: null }, { port: 3000, holder: 'node', pid: 42 }] },
 ];
 const detail = (n) => ({ name: n, dir: `/home/u/${n[0]}`, ports: '3000', url: 'http://x', note: '',
-  envFile: '', panes: [{ label: 'app', cmd: 'make run' }], editable: true, origin: n === 'alpha' ? 'project' : 'user' });
+  envFile: '', panes: [{ label: 'app', cmd: 'make run' }] });
 
 const calls = [];
 const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://localhost/',
   beforeParse(w) {
     w.fetch = async (url, opts = {}) => {
       calls.push(`${opts.method || 'GET'} ${url}`);
+      if (opts.body) w.__lastBody = JSON.parse(opts.body);
       const body = url === '/api/stacks' ? stacks
         : url.startsWith('/api/stack/') ? detail(decodeURIComponent(url.split('/').pop()))
         : url.startsWith('/api/browse') ? { path: '/home/u', parent: '/home', dirs: ['a', 'b'] }
@@ -51,6 +52,7 @@ check('shell มีเมนู 2 อัน', d.querySelectorAll('#menu [data-ro
 check('เมนูแรก (Stacks) ถูก mount และ active', d.querySelector('#view').classList.contains('m-stacks') && d.querySelector('[data-route="stacks"]').classList.contains('on'));
 check('title เป็นชื่อโปรแกรม', d.title === 'สแต็ก · D3v', d.title);
 check('เมนูเป็นไทยตามภาษาที่เลือก', d.querySelector('[data-route="stacks"]').textContent.includes('สแต็ก'));
+check('ไม่มี tag user/shared/project ในหน้า', !/\b(user|shared|project)\b/.test(d.querySelector('#view').textContent));
 check('โหลดรายการตอนเปิด', has('GET /api/stacks'));
 check('sidebar มี 2 stack', d.querySelectorAll('[data-select]').length === 2);
 check('เลือกตัวแรกให้เองและเปิด terminal stream', has('SSE /api/stream/alpha'));
@@ -95,13 +97,14 @@ check('เคลียร์ → POST /api/kill/3080', has('POST /api/kill/3080'
 
 calls.length = 0; click(d.querySelector('[data-act="edit"]')); await sleep(120);
 check('แก้ไข เปิด dialog พร้อมค่าเดิม', d.querySelector('#editor').open && d.querySelector('#f-dir').value === '/home/u/b', `dir="${d.querySelector('#f-dir').value}"`);
-check('stack แบบ user มีปุ่ม ย้ายไป project', !d.querySelector('#f-promote').hidden);
-calls.length = 0; click(d.querySelector('#f-promote')); await sleep(80);
-check('ย้ายไป project → POST /api/promote/beta', has('POST /api/promote/beta'), calls.join(', '));
-await sleep(120);
+check('stack ที่หยุดอยู่ เปลี่ยนชื่อได้ (ช่องชื่อไม่ถูก disable)', !d.querySelector('#f-name').disabled);
+check('ทุก stack มีปุ่มลบ', !d.querySelector('#f-delete').hidden);
+d.querySelector('#f-name').value = 'beta2';
+calls.length = 0; click(d.querySelector('#f-save')); await sleep(120);
+check('บันทึกชื่อใหม่ → POST /api/stack พร้อม prev=beta name=beta2', has('POST /api/stack') && w.__lastBody?.prev === 'beta' && w.__lastBody?.name === 'beta2', JSON.stringify(w.__lastBody));
 click(d.querySelector('[data-select="alpha"]')); await sleep(120);
 click(d.querySelector('[data-act="edit"]')); await sleep(120);
-check('stack ที่เป็น project อยู่แล้ว ไม่มีปุ่มย้าย', d.querySelector('#f-promote').hidden);
+check('stack ที่รันอยู่ ช่องชื่อถูก disable พร้อมคำอธิบาย', d.querySelector('#f-name').disabled && d.querySelector('#f-name-hint').textContent.includes('หยุด'));
 click(d.querySelector('#f-cancel'));
 click(d.querySelector('[data-select="beta"]')); await sleep(120);
 

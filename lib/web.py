@@ -22,12 +22,9 @@ WEB = ROOT / "web"
 STACK_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 LABEL_RE = re.compile(r"^[A-Za-z0-9_.-]{1,32}$")
 
-# Stacks created from the UI land here. It outranks devkit/stacks in nk's
-# search order, so editing a shipped stack saves a user override rather than
-# rewriting a file that is under git.
-USER_STACKS = Path(
-    os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")
-) / "nk" / "stacks"
+# The one place stacks live (same default as nk's NK_STACKS_DIR).
+STACKS_DIR = Path(os.environ.get("NK_STACKS_DIR") or (
+    Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "nk" / "stacks"))
 LOG_DIR = Path(
     os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")
 ) / "nk" / "logs"
@@ -38,13 +35,8 @@ def sh_quote(v):
     return "'" + str(v).replace("'", "'\\''") + "'"
 
 
-def write_stack(spec, target=None, omit_dir=False):
-    """Write a stack file from a UI spec. Returns (ok, message).
-
-    Default target is the user directory. A project stack passes its own
-    <root>/.nk/<name>.sh and omit_dir=True, since NK_DIR defaults to the
-    project root there and an absolute path would tie the file to this box.
-    """
+def write_stack(spec):
+    """Write <name>.sh from a UI spec. Returns (ok, message)."""
     name = spec.get("name", "")
     if not STACK_RE.match(name):
         return False, "ชื่อ stack ใช้ได้เฉพาะ a-z A-Z 0-9 _ - (ไม่เกิน 64 ตัว)"
@@ -75,10 +67,9 @@ def write_stack(spec, target=None, omit_dir=False):
         if not pt.isdigit() or not (1 <= int(pt) <= 65535):
             return False, f"port ไม่ถูกต้อง: {pt}"
 
-    body = [f"# {name} — สร้างจาก D3v ({time.strftime('%Y-%m-%d %H:%M')})"]
-    if not omit_dir:
-        body.append(f"NK_DIR={sh_quote(d)}")
-    body += [
+    body = [
+        f"# {name} — สร้างจาก D3v ({time.strftime('%Y-%m-%d %H:%M')})",
+        f"NK_DIR={sh_quote(d)}",
         f"NK_PORTS={sh_quote(' '.join(ports))}",
         f"NK_URL={sh_quote(str(spec.get('url', '')).strip())}",
         f"NK_NOTE={sh_quote(str(spec.get('note', '')).strip())}",
@@ -90,7 +81,7 @@ def write_stack(spec, target=None, omit_dir=False):
     body.extend(rows)
     body.append(")")
 
-    out = Path(target) if target else USER_STACKS / f"{name}.sh"
+    out = STACKS_DIR / f"{name}.sh"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(body) + "\n")
     return True, f"บันทึก {out} แล้ว"
@@ -249,15 +240,17 @@ class Handler(BaseHTTPRequestHandler):
                 spec = json.loads(self.rfile.read(length) or b"{}")
             except (ValueError, json.JSONDecodeError):
                 return self.send_json(400, {"error": "body ไม่ใช่ JSON"})
+            prev = str(spec.get("prev") or "")
+            if prev and prev != spec.get("name"):
+                # Renaming is nk's job (file + pane logs, refuses while running).
+                if not STACK_RE.match(prev):
+                    return self.send_json(400, {"error": "ชื่อเดิมไม่ถูกต้อง"})
+                rc, out, err = run_nk(["rename", prev, str(spec.get("name", ""))], timeout=20)
+                if rc != 0:
+                    return self.send_json(400, {"error": (err or out).strip()})
             ok, msg = write_stack(spec)
             return self.send_json(200 if ok else 400,
                                   {"ok": ok, "output": msg} if ok else {"error": msg})
-
-        if path.startswith("/api/promote/"):
-            name = self.stack_from(path, "/api/promote/")
-            if not name:
-                return
-            return self.send_json(*promote(name))
 
         if path.startswith("/api/adopt/"):
             name = self.stack_from(path, "/api/adopt/")
@@ -281,11 +274,9 @@ class Handler(BaseHTTPRequestHandler):
             name = self.stack_from(path, "/api/stack/")
             if not name:
                 return
-            f = USER_STACKS / f"{name}.sh"
+            f = STACKS_DIR / f"{name}.sh"
             if not f.exists():
-                return self.send_json(400, {
-                    "error": "ลบได้เฉพาะ stack ที่สร้างจากหน้าเว็บ "
-                             f"(ไม่มี {f})"})
+                return self.send_json(404, {"error": f"ไม่มี stack {name}"})
             run_nk(["down", name], timeout=60)
             f.unlink()
             for log in LOG_DIR.glob(f"{name}--*.log"):
@@ -295,7 +286,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def read_stack(name):
-    """The editable fields of a stack, for the UI form."""
+    """A stack as the editor form needs it."""
     rc, out, _ = run_nk(["show", name], timeout=20)
     if rc != 0:
         return {"error": "อ่าน stack ไม่ได้"}
@@ -303,39 +294,7 @@ def read_stack(name):
         data = json.loads(out)
     except json.JSONDecodeError:
         return {"error": "nk show คืน JSON ไม่ถูกต้อง"}
-    data["editable"] = (USER_STACKS / f"{name}.sh").exists()
     return data
-
-
-def promote(name):
-    """Move a stack's definition into <its dir>/.nk so it travels with the repo.
-
-    Writes the project file, registers the project so it is visible from
-    anywhere, and removes the user copy that would otherwise shadow it. A
-    shared (devkit) file is left alone — the project file outranks it.
-    """
-    spec = read_stack(name)
-    if spec.get("error"):
-        return 400, {"error": spec["error"]}
-    if spec.get("origin") == "project":
-        return 200, {"ok": True, "output": f"{name} เป็น project อยู่แล้ว ({spec['file']})"}
-    root = Path(spec["dir"])
-    if not root.is_dir():
-        return 400, {"error": f"ไม่มีไดเรกทอรี {root}"}
-    target = root / ".nk" / f"{name}.sh"
-    if target.exists():
-        return 400, {"error": f"มีอยู่แล้ว: {target} — ลบหรือแก้ไฟล์นั้นเอง"}
-    ok, msg = write_stack(spec, target=target, omit_dir=True)
-    if not ok:
-        return 400, {"error": msg}
-    run_nk(["project", "add", str(root)], timeout=20)
-    user_copy = USER_STACKS / f"{name}.sh"
-    if user_copy.exists():
-        user_copy.unlink()
-    git = (root / ".git").exists()
-    return 200, {"ok": True, "output":
-                 f"ย้ายไป {target} แล้ว" + (" — commit โฟลเดอร์ .nk/ เพื่อให้ทีมได้ด้วย" if git else ""),
-                 "file": str(target)}
 
 
 def adopt_ports(name):

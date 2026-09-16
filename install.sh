@@ -5,7 +5,15 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 BIN="$HOME/.local/bin"
 
-mkdir -p "$BIN" "${XDG_CONFIG_HOME:-$HOME/.config}/nk/stacks"
+STACKS="${NK_STACKS_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/nk/stacks}"
+mkdir -p "$BIN" "$STACKS"
+
+# First install: seed the example stacks. Never overwrite what is already there.
+for f in "$ROOT"/examples/*.sh; do
+  [ -e "$f" ] || continue
+  b=$(basename "$f")
+  [ -e "$STACKS/$b" ] || { cp "$f" "$STACKS/$b"; echo "✓ seeded $STACKS/$b"; }
+done
 chmod +x "$ROOT/bin/nk" "$ROOT/bin/d3v"
 ln -sfn "$ROOT/bin/nk" "$BIN/nk"
 ln -sfn "$ROOT/bin/d3v" "$BIN/d3v"

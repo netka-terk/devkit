@@ -25,7 +25,7 @@
           <div class="field">
             <label for="f-name">${t('ed.name')}</label>
             <input type="text" id="f-name" class="in mono" placeholder="my-api" autocomplete="off" spellcheck="false">
-            <div class="hint">${t('ed.name.hint')}</div>
+            <div class="hint" id="f-name-hint">${t('ed.name.hint')}</div>
           </div>
           <div class="field">
             <label for="f-dir">${t('ed.dir')}</label>
@@ -57,7 +57,6 @@
         </div>
         <div class="dlg-foot">
           <button type="button" class="btn danger" id="f-delete" hidden>${t('ed.delete')}</button>
-          <button type="button" class="btn" id="f-promote" hidden title="${esc(t('ed.promote.title'))}">${t('ed.promote')}</button>
           <span class="grow"></span>
           <button type="button" class="btn" id="f-cancel">${t('ed.cancel')}</button>
           <button type="button" class="btn primary" id="f-save">${t('ed.save')}</button>
@@ -80,7 +79,7 @@
         ? `<span class="pt ${heldPorts.length && !s.running ? 'held' : ''}">${esc(all.join(' '))}</span>` : '';
       return `<button class="item ${s.name === selected ? 'on' : ''}" data-select="${esc(s.name)}">
         <span class="dot ${s.running ? 'on' : ''}"></span>
-        <span class="nm"><span>${esc(s.name)}</span><small>${esc(s.origin)}</small></span>
+        <span class="nm"><span>${esc(s.name)}</span></span>
         ${pt}
       </button>`;
     }).join('');
@@ -143,7 +142,6 @@
           <div class="d-title">
             <h1>${esc(s.name)}
               <span class="state ${s.running ? 'on' : ''}"><span class="dot"></span>${s.running ? t('st.running') : t('st.stopped')}</span>
-              <span class="tag">${esc(s.origin)}</span>
             </h1>
             <div class="path">${esc(home(s.dir))}${s.url ? ` &nbsp;·&nbsp; <a class="link" href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)} ${ICON.ext}</a>` : ''}</div>
           </div>
@@ -207,7 +205,7 @@
     if (!s || s.panes) return;
     try {
       const d = await api(`/api/stack/${encodeURIComponent(name)}`);
-      s.panes = d.panes || []; s.envFile = d.envFile; s.editable = d.editable; s.file = d.file;
+      s.panes = d.panes || []; s.envFile = d.envFile; s.file = d.file;
     } catch { s.panes = []; }
   }
 
@@ -393,13 +391,16 @@
     editing = stack ? stack.name : null;
     $('#dlgtitle').textContent = stack ? t('ed.title.edit', { name: stack.name }) : t('ed.title.new');
     $('#f-name').value = stack ? stack.name : '';
-    $('#f-name').disabled = !!stack;
+    // A running stack has its name baked into the tmux session and log paths.
+    const running = !!stack && !!stacks.find((x) => x.name === stack.name)?.running;
+    $('#f-name').disabled = running;
+    $('#f-name-hint').textContent = running ? t('ed.name.running') : '';
+    $('#f-name-hint').innerHTML = running ? esc(t('ed.name.running')) : t('ed.name.hint');
     $('#f-dir').value = stack ? stack.dir : '';
     $('#f-ports').value = stack ? (stack.ports || '') : '';
     $('#f-url').value = stack ? (stack.url || '') : '';
     $('#f-env').value = stack ? (stack.envFile || '') : '';
-    $('#f-delete').hidden = !(stack && stack.editable);
-    $('#f-promote').hidden = !(stack && stack.origin && stack.origin !== 'project');
+    $('#f-delete').hidden = !stack;
     $('#browser').hidden = true;
     const host = $('#f-cmds'); host.innerHTML = '';
     const rows = stack?.panes?.length ? stack.panes : [{ label: 'app', cmd: '' }];
@@ -444,6 +445,7 @@
     };
     $('#f-save').onclick = async () => {
       const spec = {
+        prev: editing || '',
         name: $('#f-name').value.trim(), dir: $('#f-dir').value.trim(),
         ports: $('#f-ports').value.trim(), url: $('#f-url').value.trim(), envFile: $('#f-env').value.trim(),
         panes: [...$('#f-cmds').querySelectorAll('.cmdrow')].map((r) => ({
@@ -458,14 +460,6 @@
         selected = spec.name;
         await refresh();
       } catch (e) { toast(t('ed.save.fail'), { detail: e.message, kind: 'bad' }); }
-    };
-    $('#f-promote').onclick = async () => {
-      if (!editing) return;
-      try {
-        const r = await api(`/api/promote/${encodeURIComponent(editing)}`, 'POST');
-        toast(r.output, { kind: 'good', cli: `nk project add ${$('#f-dir').value}` });
-        dlg.close(); await refresh();
-      } catch (e) { toast(t('ed.promote.fail'), { detail: e.message, kind: 'bad' }); }
     };
     $('#f-delete').onclick = async () => {
       if (!editing || !confirm(t('ed.confirm.del', { name: editing }))) return;

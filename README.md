@@ -51,9 +51,8 @@ Menus today:
 Stacks in detail:
 
 - **Define a stack from the page**: name, a path (with a directory picker), one
-  or more commands, and the ports to free first. Saved to
-  `~/.config/nk/stacks/`, which outranks `devkit/stacks`, so editing a shipped
-  stack writes a user override instead of rewriting a file under git.
+  or more commands, and the ports to free first. Edit, rename (while stopped)
+  and delete work on every stack alike.
 - **Run it**: up, restart, down, and freeing an individual port, over live status.
 - **Port discovery**: while a stack runs, nk walks the process tree under each
   tmux pane and asks `lsof` what it listens on. Ports that `NK_PORTS` omits show
@@ -68,35 +67,16 @@ Loopback only: the endpoints start and stop processes, there is no auth, and it
 must not be exposed. Stacks resolve from the directory `nk web` was started in,
 so a project's `.nk/` stacks show up.
 
-## Where stacks come from
+## Where stacks live
 
-Three directories, searched in this order, so a repo can override a shared
-definition:
+One directory: `~/.config/nk/stacks/` (override with `NK_STACKS_DIR`). One
+`.sh` file per stack; `nk list` shows exactly what is in that folder. The
+console reads and writes the same files, so there is nothing to shadow or
+override. `examples/` holds the stacks this checkout ships with — `install.sh`
+copies any that are missing, once, and never overwrites.
 
-| order | location             | use                                       |
-|-------|----------------------|-------------------------------------------|
-| 1     | `<project>/.nk/*.sh` | committed with the repo, no absolute paths |
-| 2     | `~/.config/nk/stacks`| personal, machine-specific                 |
-| 3     | `<devkit>/stacks`    | shared defaults in this checkout           |
-
-A stack in `<project>/.nk/` defaults `NK_DIR` to the project root, so the file
-works on any machine and any checkout path.
-
-`nk` finds the current project root by walking up for a `.nk/` directory, then
-for `.git`. Other projects' `.nk/` directories are found through the registry
-in `~/.config/nk/projects` (`nk project list|add|rm`), so the console shows
-every project's stacks no matter where it was started. `nk init` registers the
-project it runs in; the console's **ย้ายไป project** button moves a user stack
-into `<its dir>/.nk/`, registers that project, and removes the user copy.
-
-## Using it on another project
-
-    cd ~/some-other-repo
-    nk init                # reads Makefile / package.json / go.mod / compose
-    $EDITOR .nk/some-other-repo.sh
-    nk up some-other-repo
-
-Then commit `.nk/` — everyone on the repo gets the same `nk up`.
+    nk init [name]           # scaffold a stack for the current folder (git root if in a repo)
+    nk rename old new        # rename a stopped stack (file + pane logs)
 
 ## Stack file contract
 
@@ -113,9 +93,9 @@ Then commit `.nk/` — everyone on the repo gets the same `nk up`.
 
 `bin/nk` needs no changes to gain a stack.
 
-## Stacks shipped here
+## Example stacks (`examples/`)
 
-| stack   | repo                | ports     |
+| example | repo                | ports     |
 |---------|---------------------|-----------|
 | grafana | `~/grafana`         | 3000      |
 | corr    | `~/nlg-correlation` | 3080      |
