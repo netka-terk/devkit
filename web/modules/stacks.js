@@ -113,8 +113,8 @@
       }).join('\n');
       const bang = held.length ? `<span class="bang" title="${esc(reason)}" aria-label="${esc(reason)}">!</span>` : '';
       const [, cls] = STATE[stateOf(s)];
-      return `<button class="item ${s.name === selected ? 'on' : ''}" data-select="${esc(s.name)}">
-        <span class="dot ${cls}" style="--sc:${color(s.name)}"></span>
+      return `<button class="item ${s.name === selected ? 'on' : ''}" data-select="${esc(s.name)}" style="--sc:${color(s.name)}">
+        <span class="dot ${cls}"></span><span class="sw"></span>
         <span class="nm"><span>${esc(s.name)}</span></span>
         ${bang}
       </button>`;

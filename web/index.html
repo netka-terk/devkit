@@ -141,7 +141,7 @@
   .side-head .count { font-weight: 500; letter-spacing: 0; text-transform: none; font-family: var(--mono); }
   .list { overflow: auto; padding: 0 8px 12px; display: flex; flex-direction: column; gap: 2px; }
   .item {
-    display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 10px;
+    display: grid; grid-template-columns: 10px 3px 1fr auto; align-items: center; gap: 8px;
     width: 100%; text-align: left; padding: 9px 10px; border-radius: var(--r);
     border: 1px solid transparent; background: transparent;
   }
@@ -324,7 +324,9 @@
   /* stack colour: one hue per stack, the same one tmux paints its borders in */
   .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex: none; }
   .d-title h1 .swatch { width: 13px; height: 13px; border-radius: 4px; }
-  .dot.on { background: var(--sc, var(--good)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sc, var(--good)) 22%, transparent); }
+  /* Status is always the same four colours — green, amber, red, grey. The
+     stack's own colour is a separate mark (.sw), never the status dot. */
+  .item .sw { width: 3px; height: 14px; border-radius: 2px; background: var(--sc); justify-self: center; }
   .dot.starting { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
   .dot.bad { background: var(--bad); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 25%, transparent); }
   @keyframes pulse { 50% { opacity: .3; } }

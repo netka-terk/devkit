@@ -129,7 +129,8 @@ check('reset จาก stream → ล้าง pane', !pre.textContent.includes(
 // crashed, even though its shell keeps the tmux pane alive.
 const stateEl = () => d.querySelector('#main .state');
 check('stack ที่ port ถูก bind แล้ว → "พร้อม"', stateEl()?.classList.contains('on') && stateEl().textContent.includes('พร้อม'), stateEl()?.textContent);
-check('ชื่อ stack มี swatch สีประจำ และจุดใน sidebar ใช้สีเดียวกัน', /hsl|rgb/.test(d.querySelector('#main h1 .swatch')?.getAttribute('style') || '') && d.querySelector('[data-select="alpha"] .dot').style.getPropertyValue('--sc').startsWith('hsl'));
+check('ชื่อ stack มี swatch สีประจำ และ sidebar มีแถบสีเดียวกัน แยกจากจุดสถานะ', /hsl|rgb/.test(d.querySelector('#main h1 .swatch')?.getAttribute('style') || '') && d.querySelector('[data-select="alpha"]').style.getPropertyValue('--sc').startsWith('hsl') && !!d.querySelector('[data-select="alpha"] .sw'));
+check('จุดสถานะใน sidebar ไม่ใช้สีประจำ stack (สีสถานะเหมือนกันทุก stack)', !d.querySelector('[data-select="alpha"] .dot').getAttribute('style'));
 check('สี stack ต่างกัน (alpha ≠ beta)', w.D3v.color('alpha') !== w.D3v.color('beta'));
 const alpha = stacks[0], keep = { ports: alpha.ports, detected: alpha.detected };
 alpha.ports = [{ port: 3000, holder: null, pid: null }]; alpha.detected = [];
