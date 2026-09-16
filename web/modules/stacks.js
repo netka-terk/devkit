@@ -165,7 +165,6 @@
           <div class="panel">
             <div class="p-head">${t('st.panes')} <span class="num" style="font-weight:500">${(s.panes || []).length}</span></div>
             <div class="kv">${panes}</div>
-            ${s.note ? `<div class="note">${esc(s.note)}</div>` : ''}
           </div>
         </div>
       </section>

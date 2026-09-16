@@ -63,6 +63,7 @@ check('stack ที่หยุดและ port ถูกใช้ ขึ้น
 check('stack ที่รันอยู่ไม่มี !', !d.querySelector('[data-select="alpha"] .bang'));
 check('เลือกตัวแรกให้เองและเปิด terminal stream', has('SSE /api/stream/alpha'));
 check('หัวเรื่องเป็นชื่อ stack', d.querySelector('#main h1')?.textContent.includes('alpha'));
+check('ไม่แสดง NK_NOTE ในหน้า', !d.querySelector('#main .note'));
 check('stack ที่รันอยู่มีปุ่ม รีสตาร์ท/หยุด', !!d.querySelector('[data-act="restart"]') && !!d.querySelector('[data-act="down"]'));
 check('port ที่เจอตอนรันแต่ไม่ได้ประกาศ แสดงพร้อม tag', d.querySelector('#main').textContent.includes(':9229') && !!d.querySelector('.tag.auto'));
 calls.length = 0; click(d.querySelector('[data-adopt]')); await sleep(80);
