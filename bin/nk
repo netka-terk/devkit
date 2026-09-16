@@ -55,7 +55,7 @@ cmd_up() {
   mkdir -p "$logdir"
   # Drop every log this stack left behind, not just the panes it has now — a
   # renamed or removed pane would otherwise linger as a phantom terminal tab.
-  rm -f "$logdir/$NK_NAME--"*.log
+  rm -f "$logdir/$NK_NAME--"*.log "$logdir/$NK_NAME--"*.exit
   for pane in "${NK_PANES[@]}"; do
     label=${pane%%|*}; cmd=${pane#*|}
     # bash -ic: .bashrc returns early for non-interactive shells, so an
@@ -64,11 +64,11 @@ cmd_up() {
     # form that only target-session accepts.
     if [ "$first" = 1 ]; then
       tmux new-session -d -s "$sess" -n "$NK_NAME" -c "$NK_DIR" \
-        bash -ic "$(nk_pane_cmd "$cmd")" || die "สร้าง tmux session ไม่สำเร็จ"
+        bash -ic "$(nk_pane_cmd "$cmd" "$label")" || die "สร้าง tmux session ไม่สำเร็จ"
       first=0
     else
       tmux split-window -t "$sess:" -c "$NK_DIR" \
-        bash -ic "$(nk_pane_cmd "$cmd")" || die "สร้าง pane $label ไม่สำเร็จ"
+        bash -ic "$(nk_pane_cmd "$cmd" "$label")" || die "สร้าง pane $label ไม่สำเร็จ"
       tmux select-layout -t "$sess:" even-vertical >/dev/null
     fi
     tmux select-pane -t "$sess:" -T "$label"
@@ -85,6 +85,12 @@ cmd_up() {
 
   tmux set-option -t "$sess" -q mouse on 2>/dev/null
   tmux set-option -t "$sess" -q pane-border-status top 2>/dev/null
+  # The stack's colour, same as on the page, so an attached session is
+  # recognisable at a glance.
+  local hue=${NK_TMUX_HUES[$(nk_hue "$NK_NAME")]}
+  tmux set-option -t "$sess" -q pane-border-style "fg=colour$hue" 2>/dev/null
+  tmux set-option -t "$sess" -q pane-active-border-style "fg=colour$hue,bold" 2>/dev/null
+  tmux set-option -t "$sess" -q status-style "bg=colour$hue,fg=colour232" 2>/dev/null
   [ -n "$NK_URL" ]  && dim "    $NK_URL"
   [ -n "$NK_NOTE" ] && dim "    $NK_NOTE"
   echo
@@ -158,13 +164,26 @@ cmd_status_json() {
           detected+="$sep{\"port\":$dport,\"pid\":$dpid,\"holder\":$(nk_json_str "$dname")}"
           sep=,
         done < <(nk_detected "$name")
-        printf '{"name":%s,"dir":%s,"url":%s,"note":%s,"running":%s,"hasToken":%s,"ports":[%s],"detected":[%s]}\n' \
+        # Panes whose command has finished, with its exit code — the shell in
+        # the pane is still open, so tmux alone cannot tell.
+        local exits= ef lbl rc running
+        running=$(nk_running "$name" && echo true || echo false)
+        sep=
+        if [ "$running" = true ]; then
+          for ef in "$NK_CACHE/logs/$NK_NAME--"*.exit; do
+            [ -e "$ef" ] || continue
+            lbl=${ef##*--}; lbl=${lbl%.exit}; rc=$(<"$ef")
+            case $rc in ''|*[!0-9]*) rc=1 ;; esac
+            exits+="$sep$(nk_json_str "$lbl"):$rc"; sep=,
+          done
+        fi
+        printf '{"name":%s,"dir":%s,"url":%s,"note":%s,"running":%s,"hasToken":%s,"ports":[%s],"detected":[%s],"exits":{%s}}\n' \
           "$(nk_json_str "$NK_NAME")" \
           "$(nk_json_str "$NK_DIR")" "$(nk_json_str "$NK_URL")" \
           "$(nk_json_str "$NK_NOTE")" \
-          "$(nk_running "$name" && echo true || echo false)" \
+          "$running" \
           "$([ -n "$NK_TOKEN_CMD" ] && echo true || echo false)" \
-          "$ports" "$detected" )
+          "$ports" "$detected" "$exits" )
     done | paste -sd, -
   )
   printf '[%s]\n' "$objs"
@@ -460,6 +479,35 @@ cmd_secret() {
   esac
 }
 
+# ================================================================= nopass ====
+
+# cmd_nopass <command> — let `sudo <command>` run without a password, for this
+# user and that one binary only. This is the alternative to storing a sudo
+# password: sudo asks once, to install the rule, and never again for it.
+#   nk nopass setcap      # mdm's `make build-nksmdm` runs sudo setcap
+cmd_nopass() {
+  [ $# -ge 1 ] || die "ใช้: nk nopass <คำสั่ง>   เช่น nk nopass setcap"
+  local cmd=$1 path user rule f
+  case $cmd in *[!A-Za-z0-9_.-]*|'') die "ชื่อคำสั่งไม่ถูกต้อง" ;; esac
+  path=$(command -v "$cmd") || die "ไม่พบคำสั่ง $cmd ใน PATH"
+  case $path in /*) ;; *) die "หา path เต็มของ $cmd ไม่ได้" ;; esac
+  command -v visudo >/dev/null || die "ต้องมี visudo (sudo package)"
+  user=$(id -un)
+  rule="$user ALL=(root) NOPASSWD: $path"
+  f="/etc/sudoers.d/nk-$user-$cmd"
+  if sudo -n -l "$path" >/dev/null 2>&1; then ok "sudo $cmd ไม่ถามรหัสอยู่แล้ว"; return 0; fi
+  info "จะเพิ่มกฎ sudoers:  $rule"
+  dim "    ไฟล์ $f — sudo จะถามรหัสครั้งนี้ครั้งเดียว"
+  # Write, lock down, then let visudo judge it; a rule visudo rejects is removed
+  # again so a broken file can never sit in sudoers.d.
+  if ! { printf '%s\n' "$rule" | sudo tee "$f" >/dev/null && sudo chmod 440 "$f" && sudo visudo -cf "$f" >/dev/null; }; then
+    sudo rm -f "$f" 2>/dev/null
+    die "ติดตั้งกฎไม่สำเร็จ"
+  fi
+  ok "ตั้งแล้ว — sudo $cmd ไม่ถามรหัสอีก"
+  dim "    ยกเลิก: sudo rm $f"
+}
+
 # =================================================================== send ====
 
 # cmd_send <stack> <pane> --text <s> | --key <name> — type into a running pane.
@@ -538,6 +586,7 @@ ${C_B}nk${C_0} — dev stack runner (ใช้ได้กับทุกโป�
   ${C_B}nk rename <เดิม> <ใหม่>${C_0}  เปลี่ยนชื่อ stack (ต้องหยุดอยู่)
   ${C_B}nk send <stack> <pane> --text|--key${C_0}  พิมพ์เข้า pane ที่รันอยู่ (ตอบ prompt)
   ${C_B}nk secret <stack> set|clear${C_0}  รหัส sudo ที่ pane ของ stack จะใช้ตอบเอง
+  ${C_B}nk nopass <คำสั่ง>${C_0}      ให้ sudo <คำสั่ง> ไม่ถามรหัส (กฎ sudoers เฉพาะคำสั่งนั้น — ดีกว่าเก็บรหัส)
   ${C_B}nk web [port]${C_0}          เปิดหน้าเว็บที่ 127.0.0.1:7777 (default)
 
   ${C_B}nk token [stack] [-f]${C_0}      token จาก NK_TOKEN_CMD (cache + mint ใหม่เมื่อใกล้หมดอายุ)
@@ -575,6 +624,7 @@ case ${1:-help} in
   rename)   shift; cmd_rename "$@" ;;
   send)     shift; cmd_send "$@" ;;
   secret)   shift; cmd_secret "$@" ;;
+  nopass)   shift; cmd_nopass "$@" ;;
   help|-h|--help) cmd_help ;;
   *) die "ไม่รู้จักคำสั่ง '$1' (ดู: nk help)" ;;
 esac

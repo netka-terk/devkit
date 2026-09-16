@@ -242,16 +242,33 @@ nk_sudo_shim() {
   printf '%s' "$dir"
 }
 
-# nk_pane_cmd <command> — wrap a pane command with cd, optional env file, and a
-# shell that stays alive after the process exits so errors stay readable.
+# nk_exit_file <stack> <label> — where a pane's wrapper leaves the exit code of
+# its command. `nk up` clears these; while a pane's file exists its command has
+# finished, and the shell in the pane is only there to keep the output readable.
+nk_exit_file() { printf '%s/logs/%s--%s.exit' "$NK_CACHE" "$1" "$2"; }
+
+# nk_pane_cmd <command> <label> — wrap a pane command with cd, optional env
+# file, and a shell that stays alive after the process exits so errors stay
+# readable. The exit code is recorded (see nk_exit_file) so the console can
+# show a crashed pane as crashed rather than "running".
 nk_pane_cmd() {
-  local cmd=$1 pre= shim
+  local cmd=$1 label=${2:-app} pre= shim
   if nk_has_secret "$NK_NAME"; then
     shim=$(nk_sudo_shim "$NK_NAME")
     pre="export PATH=$(printf %q "$shim"):\$PATH SUDO_ASKPASS=$(printf %q "$shim/askpass"); "
   fi
   [ -n "$NK_ENV_FILE" ] && [ -f "$NK_DIR/$NK_ENV_FILE" ] &&
     pre="${pre}set -a; . ./$NK_ENV_FILE; set +a; "
-  printf 'cd %q && %s%s; printf "\n[%s จบการทำงาน — exit %%s] กด enter เพื่อปิด pane\n" "$?"; read -r; exec bash' \
-    "$NK_DIR" "$pre" "$cmd" "$NK_NAME"
+  printf 'cd %q && %s%s; __rc=$?; printf %%s "$__rc" > %q; printf "\n[%s จบการทำงาน — exit %%s] กด enter เพื่อปิด pane\n" "$__rc"; read -r; exec bash' \
+    "$NK_DIR" "$pre" "$cmd" "$(nk_exit_file "$NK_NAME" "$label")" "$NK_NAME"
 }
+
+# nk_hue <stack> — a stable 0..11 colour index for a stack name. The console
+# uses the same hash, so a stack is the same colour in tmux and on the page.
+nk_hue() {
+  local s=$1 i h=0
+  for ((i = 0; i < ${#s}; i++)); do h=$(( (h * 31 + $(printf '%d' "'${s:i:1}")) % 1000003 )); done
+  printf '%s' $((h % 12))
+}
+# The 12 hues as tmux 256-colour indexes, in the same order as the page's palette.
+NK_TMUX_HUES=(167 173 179 107 71 37 44 68 62 134 170 168)
