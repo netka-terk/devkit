@@ -263,8 +263,8 @@ nk_pane_cmd() {
     "$NK_DIR" "$pre" "$cmd" "$(nk_exit_file "$NK_NAME" "$label")" "$NK_NAME"
 }
 
-# nk_hue <stack> — a stable 0..11 colour index for a stack name. The console
-# uses the same hash, so a stack is the same colour in tmux and on the page.
+# nk_hue <stack> — a stable 0..11 colour index for a stack name, for the tmux
+# borders of its session (the page uses colour for status only).
 nk_hue() {
   local s=$1 i h=0
   for ((i = 0; i < ${#s}; i++)); do h=$(( (h * 31 + $(printf '%d' "'${s:i:1}")) % 1000003 )); done

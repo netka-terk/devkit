@@ -3,7 +3,7 @@
 // tmux pane) sits on a 12-column grid and can be dragged and resized, Grafana
 // style. Layouts are kept per stack in localStorage.
 (() => {
-  const { api, toast, esc, home, icons: ICON, t, color, stateOf, STATE } = D3v;
+  const { api, toast, esc, home, icons: ICON, t, stateOf, STATE } = D3v;
 
   let root = null, $ = null;
   let stacks = [], selected = null, pendingSelect = null;
@@ -113,8 +113,8 @@
       }).join('\n');
       const bang = held.length ? `<span class="bang" title="${esc(reason)}" aria-label="${esc(reason)}">!</span>` : '';
       const [, cls] = STATE[stateOf(s)];
-      return `<button class="item ${s.name === selected ? 'on' : ''}" data-select="${esc(s.name)}" style="--sc:${color(s.name)}">
-        <span class="dot ${cls}"></span><span class="sw"></span>
+      return `<button class="item ${s.name === selected ? 'on' : ''}" data-select="${esc(s.name)}">
+        <span class="dot ${cls}"></span>
         <span class="nm"><span>${esc(s.name)}</span></span>
         ${bang}
       </button>`;
@@ -203,7 +203,7 @@
     const title = STATE[st] && t(`st.state.title.${st}`) !== `st.state.title.${st}` ? t(`st.state.title.${st}`) : '';
     return `
       <div class="d-title">
-        <h1><span class="swatch" style="background:${color(s.name)}"></span>${esc(s.name)}
+        <h1>${esc(s.name)}
           <span class="state ${cls}" title="${esc(title)}"><span class="dot"></span>${t(labelKey)}</span>
         </h1>
         <div class="path">${esc(home(s.dir))}${s.url ? ` &nbsp;·&nbsp; <a class="link" href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)} ${ICON.ext}</a>` : ''}</div>
@@ -441,7 +441,7 @@
 
   function panelHtml(s, it) {
     const { title, body, cls, extra } = panelParts(s, it);
-    return `<section class="gp ${cls}" data-gp="${esc(it.id)}" style="--sc:${color(s.name)}">
+    return `<section class="gp ${cls}" data-gp="${esc(it.id)}">
       <header class="gp-head" title="${esc(t('ui.drag.panel'))}"><span class="gp-title">${title}</span><span class="gp-tools">${extra}${closeBtn(it)}</span></header>
       <div class="gp-body">${body}</div>
       <span class="gp-resize" data-resize title="${esc(t('ui.drag'))}"></span>

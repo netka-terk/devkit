@@ -97,11 +97,9 @@ Stacks in detail:
   quiet for a few seconds) turns amber with a "waiting for input" button that
   focuses the terminal. It is a hint from the output, never an answer typed on
   the user's behalf.
-- **One colour per stack**, from a hash of its name: a thin bar in the
-  sidebar, the heading swatch, panel headers and the Ports table all use it,
-  and `nk up`
-  paints the tmux borders and status bar the same hue, so an attached session
-  is recognisable at a glance.
+- **tmux borders per stack**: `nk up` paints a session's pane borders and
+  status bar in a hue hashed from the stack name, so `nk attach` shows which
+  stack you are in. The page itself uses colour for status only.
 - **Command palette** (`Ctrl-K`, or the "Commands" button): type what to do —
   `up grafana`, `kill 3080`, `ports` — and press Enter. Every item shows the
   `nk` command it stands for, so the palette doubles as the CLI cheat sheet.

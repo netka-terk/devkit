@@ -141,7 +141,7 @@
   .side-head .count { font-weight: 500; letter-spacing: 0; text-transform: none; font-family: var(--mono); }
   .list { overflow: auto; padding: 0 8px 12px; display: flex; flex-direction: column; gap: 2px; }
   .item {
-    display: grid; grid-template-columns: 10px 3px 1fr auto; align-items: center; gap: 8px;
+    display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 10px;
     width: 100%; text-align: left; padding: 9px 10px; border-radius: var(--r);
     border: 1px solid transparent; background: transparent;
   }
@@ -321,12 +321,7 @@
   .in.mono { font-family: var(--mono); font-size: 13px; }
   .row2 { display: flex; gap: 6px; }
 
-  /* stack colour: one hue per stack, the same one tmux paints its borders in */
-  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex: none; }
-  .d-title h1 .swatch { width: 13px; height: 13px; border-radius: 4px; }
-  /* Status is always the same four colours — green, amber, red, grey. The
-     stack's own colour is a separate mark (.sw), never the status dot. */
-  .item .sw { width: 3px; height: 14px; border-radius: 2px; background: var(--sc); justify-self: center; }
+  /* Status is always the same four colours — green, amber, red, grey. */
   .dot.starting { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
   .dot.bad { background: var(--bad); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 25%, transparent); }
   @keyframes pulse { 50% { opacity: .3; } }
@@ -739,13 +734,6 @@ window.D3v = (() => {
   // setActions(html) — a module puts its header-level buttons here.
   const setActions = (html) => { document.getElementById('actions').innerHTML = html; };
 
-  // ------------------------------------------------------ stack colour --
-  // One hue per stack, from the same hash nk uses for its tmux borders (see
-  // nk_hue in lib/core.sh), so a stack looks the same attached and on the page.
-  const HUES = [4, 28, 48, 90, 140, 170, 195, 220, 250, 280, 310, 340];
-  const hue = (name) => { let h = 0; for (const ch of String(name)) h = (h * 31 + ch.codePointAt(0)) % 1000003; return HUES[h % 12]; };
-  const color = (name) => `hsl(${hue(name)} 60% 50%)`;
-
   // -------------------------------------------------------------- state --
   // stateOf — what a stack is doing, from what nk reports: the tmux session,
   // who holds its ports, and the exit code of any pane whose command ended.
@@ -855,7 +843,7 @@ window.D3v = (() => {
     label: t('pal.go', { menu: label(m) }), icon: m.icon, keys: m.id, run: () => { location.hash = `#/${m.id}`; },
   })));
 
-  return { register, api, toast, esc, home, icons, setActions, t, hue, color, stateOf, STATE, setBadge, notify, announce, commands,
+  return { register, api, toast, esc, home, icons, setActions, t, stateOf, STATE, setBadge, notify, announce, commands,
            get lang() { return lang; }, get HOME() { return HOME; } };
 })();
 </script>

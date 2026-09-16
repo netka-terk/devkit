@@ -129,9 +129,6 @@ check('reset จาก stream → ล้าง pane', !pre.textContent.includes(
 // crashed, even though its shell keeps the tmux pane alive.
 const stateEl = () => d.querySelector('#main .state');
 check('stack ที่ port ถูก bind แล้ว → "พร้อม"', stateEl()?.classList.contains('on') && stateEl().textContent.includes('พร้อม'), stateEl()?.textContent);
-check('ชื่อ stack มี swatch สีประจำ และ sidebar มีแถบสีเดียวกัน แยกจากจุดสถานะ', /hsl|rgb/.test(d.querySelector('#main h1 .swatch')?.getAttribute('style') || '') && d.querySelector('[data-select="alpha"]').style.getPropertyValue('--sc').startsWith('hsl') && !!d.querySelector('[data-select="alpha"] .sw'));
-check('จุดสถานะใน sidebar ไม่ใช้สีประจำ stack (สีสถานะเหมือนกันทุก stack)', !d.querySelector('[data-select="alpha"] .dot').getAttribute('style'));
-check('สี stack ต่างกัน (alpha ≠ beta)', w.D3v.color('alpha') !== w.D3v.color('beta'));
 const alpha = stacks[0], keep = { ports: alpha.ports, detected: alpha.detected };
 alpha.ports = [{ port: 3000, holder: null, pid: null }]; alpha.detected = [];
 click(d.querySelector('#refresh')); await sleep(120);
@@ -283,7 +280,6 @@ check('ปุ่มรีเฟรช', has('GET /api/stacks'));
 calls.length = 0; w.location.hash = '#/ports'; await sleep(150);
 check('สลับเมนู Ports → mount module ใหม่', d.querySelector('#view').classList.contains('m-ports') && d.querySelector('[data-route="ports"]').classList.contains('on'));
 check('Ports โหลดข้อมูลเอง', has('GET /api/stacks'));
-check('ตาราง Ports มี swatch สีของ stack', d.querySelectorAll('.m-ports .swatch').length >= 1);
 check('แสดงเฉพาะ port ที่ใช้อยู่ (5000 ว่างไม่โชว์) + port ที่เจอตอนรัน', d.querySelectorAll('.m-ports tbody tr').length === 3 && d.querySelector('.m-ports').textContent.includes(':9229') && !d.querySelector('.m-ports').textContent.includes(':5000'));
 check('port 3000 ที่ 2 stack ประกาศ → แถวเดียว เจ้าของคือตัวที่รัน', (d.querySelector('.m-ports').textContent.match(/:3000/g) || []).length === 1 && d.querySelector('.m-ports tbody tr').textContent.includes('alpha') && d.querySelector('.m-ports tbody tr').textContent.includes('ประกาศด้วย beta'));
 check('ปุ่มเคลียร์มีเฉพาะ port ที่ถูกจับนอก nk — ไม่มีที่ 3000', d.querySelectorAll('.m-ports [data-kill]').length === 1 && !!d.querySelector('.m-ports [data-kill="3080"]'));

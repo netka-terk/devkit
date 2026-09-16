@@ -1,6 +1,6 @@
 // D3v · Ports — every port the stacks declare or were seen using, who holds it now.
 (() => {
-  const { api, toast, esc, t, color } = D3v;
+  const { api, toast, esc, t } = D3v;
   let root = null, timer = null;
 
   // rowsFrom — one row per port that is actually in use. A port declared by
@@ -49,7 +49,7 @@
         <tbody>${rows.length ? rows.map((r) => `
           <tr>
             <td class="port num">:${r.port}</td>
-            <td>${r.stack ? `<span class="swatch" style="background:${color(r.stack)};vertical-align:-1px;margin-right:7px"></span><a class="st" href="#/stacks/${encodeURIComponent(r.stack)}">${esc(r.stack)}</a>` : '<span style="color:var(--faint)">—</span>'}
+            <td>${r.stack ? `<a class="st" href="#/stacks/${encodeURIComponent(r.stack)}">${esc(r.stack)}</a>` : '<span style="color:var(--faint)">—</span>'}
                 ${r.kind === 'detected' ? `<span class="tag auto">${t('st.detected')}</span>` : ''}
                 ${r.others.length ? `<span class="tag" title="${esc(t('po.also.title'))}" style="margin-left:6px">${esc(t('po.also', { names: r.others.join(', ') }))}</span>` : ''}</td>
             <td>${state(r)}</td>
