@@ -118,7 +118,20 @@
   .view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
   /* ------------------------------------------------------------ m-stacks */
-  .m-stacks .shell { flex: 1; min-height: 0; display: grid; grid-template-columns: 264px 1fr; }
+  .m-stacks .shell { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--side-w, 264px) 6px 1fr; }
+  .m-stacks[data-term-sized] .term-wrap { flex: none; height: var(--term-h); }
+
+  /* draggable edges */
+  .gutter { position: relative; z-index: 1; touch-action: none; user-select: none; }
+  .gutter.v { cursor: col-resize; margin: 0 -3px; width: 6px; }
+  .gutter.h { cursor: row-resize; margin: -3px 0; height: 6px; }
+  .gutter::after { content: ''; position: absolute; inset: 0; margin: auto; background: transparent; border-radius: 2px; transition: background .12s; }
+  .gutter.v::after { width: 2px; }
+  .gutter.h::after { height: 2px; }
+  .gutter:hover::after, .gutter.dragging::after { background: var(--accent); }
+  .term-wrap + .gutter, .detail + .gutter.h { margin: 6px 28px -6px; height: 12px; }
+  .split .gutter { margin: 0; background: var(--term-line); }
+  .split .gutter.v { width: 6px; } .split .gutter.h { height: 6px; }
   .side {
     background: var(--surface); border-right: 1px solid var(--line);
     display: flex; flex-direction: column; min-height: 0;
@@ -201,7 +214,7 @@
 
   /* ------------------------------------------------------------- terminal */
   .term-wrap {
-    margin: 0 28px 24px; margin-top: 18px; background: var(--term-bg); border-radius: 10px;
+    margin: 0 28px 24px; background: var(--term-bg); border-radius: 10px;
     border: 1px solid var(--term-line); overflow: hidden; display: flex; flex-direction: column;
     min-height: 320px; flex: 1; box-shadow: var(--shadow);
   }
@@ -338,6 +351,7 @@
     .menu a span:not(.k) { display: none; }
     .menu a { padding: 0 10px; }
     .m-stacks .shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    .m-stacks #side-gutter { display: none; }
     .m-ports { padding: 16px; }
     .side { border-right: 0; border-bottom: 1px solid var(--line); max-height: 40vh; }
     .side-foot { display: none; }
@@ -412,6 +426,7 @@ window.D3v = (() => {
     'st.kill.fail': ['เคลียร์ port {port} ไม่สำเร็จ', 'Could not clear port {port}'],
     'st.load.fail': ['โหลดรายการ stack ไม่ได้', 'Could not load stacks'],
     'st.confirm.stop': ['หยุด {name}?', 'Stop {name}?'],
+    'ui.drag': ['ลากเพื่อปรับขนาด · ดับเบิลคลิกเพื่อคืนค่าเดิม', 'Drag to resize · double-click to reset'],
     'st.port.busy': ['port {port} ถูกใช้อยู่โดย {holder} (pid {pid})', 'Port {port} is in use by {holder} (pid {pid})'],
     'st.port.busy.by': ['— {stack} กำลังรัน ถ้ารัน {me} จะหยุด {stack} ก่อน', '— {stack} is running; running {me} will stop {stack} first'],
     'st.port.busy.ext': ['— ไม่ได้รันผ่าน nk ถ้ารัน {me} จะปิด process นั้นก่อน', '— not started by nk; running {me} will close that process first'],

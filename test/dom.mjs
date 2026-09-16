@@ -75,6 +75,21 @@ feed('backend', 'INFO listening :3000\n'); feed('frontend', 'webpack compiled\n'
 check('แท็บ 2 pane', d.querySelectorAll('#tabs [data-pane]').length === 2 && !!d.querySelector('#logtext'));
 click(d.querySelector('[data-mode="cols"]'));
 check('แยกซ้าย-ขวา → 2 pane พร้อมกัน', d.querySelectorAll('.split.cols .pane').length === 2);
+check('2 pane มีเส้นแบ่งลากได้', !!d.querySelector('.split [data-split-gutter]'));
+
+// Resizing: pointer events on the gutters. jsdom has no layout, so rects are
+// zero and the clamps decide the numbers — what matters is that a drag writes
+// the size, the page picks it up, and double-click clears it.
+const ptr = (el, type, x, y) => el.dispatchEvent(new w.MouseEvent(type, { bubbles: true, clientX: x, clientY: y }));
+const view = d.querySelector('#view');
+ptr(d.querySelector('#side-gutter'), 'pointerdown', 0, 0); ptr(d, 'pointermove', 400, 0); ptr(d, 'pointerup', 400, 0);
+check('ลากขอบ sidebar → ความกว้างเปลี่ยนและถูกจำ', view.style.getPropertyValue('--side-w') === '400px' && w.localStorage.getItem('d3v-side-w') === '400', view.style.getPropertyValue('--side-w'));
+d.querySelector('#side-gutter').dispatchEvent(new w.MouseEvent('dblclick', { bubbles: true }));
+check('ดับเบิลคลิก → คืนค่าเดิม', view.style.getPropertyValue('--side-w') === '' && w.localStorage.getItem('d3v-side-w') === null);
+ptr(d.querySelector('#term-gutter'), 'pointerdown', 0, 300); ptr(d, 'pointermove', 0, 100); ptr(d, 'pointerup', 0, 100);
+check('ลากขอบ terminal → ความสูงถูกตั้ง', view.dataset.termSized === '1' && /px$/.test(view.style.getPropertyValue('--term-h')), view.style.getPropertyValue('--term-h'));
+d.querySelector('#term-gutter').dispatchEvent(new w.MouseEvent('dblclick', { bubbles: true }));
+check('ดับเบิลคลิก terminal → คืนค่าเดิม', !view.dataset.termSized);
 check('แต่ละ pane มี output ของตัวเอง',
   d.querySelector('[data-pre="backend"]')?.textContent.includes(':3000') && d.querySelector('[data-pre="frontend"]')?.textContent.includes('webpack'));
 feed('frontend', 'rebuilt\n');

@@ -15,6 +15,7 @@
         <nav class="list" id="list" aria-label="stacks"></nav>
         <div class="side-foot">${t('st.foot')} <code>nk up grafana</code></div>
       </aside>
+      <div class="gutter v" id="side-gutter" title="${esc(t('ui.drag'))}"></div>
       <main class="main" id="main"></main>
     </div>
 
@@ -169,6 +170,7 @@
         </div>
       </section>
 
+      <div class="gutter h" id="term-gutter" title="${esc(t('ui.drag'))}"></div>
       <div class="term-wrap">
         <div class="term-bar">
           <span class="lbl">${t('term.title')}</span>
@@ -186,6 +188,7 @@
         <div class="term-body" id="termbody"></div>
       </div>`;
 
+    wireTermGutter();
     attachTerm(s.name);
   }
 
@@ -347,15 +350,22 @@
       body.innerHTML = `<pre class="term" id="logtext"></pre>`;
     } else {
       tabs.hidden = true;
-      body.innerHTML = `<div class="split ${termMode}">` + names.map((n) => `
+      const pane = (n) => `
         <section class="pane" data-pane="${esc(n)}">
           <header><span>${esc(n)}</span><span class="grow"></span>
             <button data-clear="${esc(n)}" title="${esc(t('term.clear.pane'))}">${t('term.clear')}</button>
             <button data-max="${esc(n)}" title="${esc(t('term.max'))}">⤢</button>
           </header>
           <pre class="term" data-pre="${esc(n)}"></pre>
-        </section>`).join('') + `</div>`;
+        </section>`;
+      // Two panes get a draggable divider; more than two share the space evenly.
+      const parts = names.length === 2
+        ? [pane(names[0]), `<div class="gutter ${termMode === 'cols' ? 'v' : 'h'}" data-split-gutter title="${esc(t('ui.drag'))}"></div>`, pane(names[1])]
+        : names.map(pane);
+      body.innerHTML = `<div class="split ${termMode}">${parts.join('')}</div>`;
+      if (names.length === 2) applySplit();
     }
+    wireSplitGutter();
     paint();
   }
 
@@ -374,6 +384,79 @@
     for (const pre of root.querySelectorAll('[data-pre]')) {
       if (!only || pre.dataset.pre === only) draw(pre, panes.get(pre.dataset.pre));
     }
+  }
+
+  // ------------------------------------------------------------- resize --
+  // Three draggable edges — sidebar width, terminal height, and the divider of
+  // a two-pane split. Sizes live in CSS variables on the module root so they
+  // survive the periodic re-render, and in localStorage so they survive reload.
+  const SIZES = { side: 'd3v-side-w', term: 'd3v-term-h', split: 'd3v-split-r' };
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const saved = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+  const store = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} };
+
+  function drag(handle, axis, onMove, onReset) {
+    if (!handle) return;
+    // addEventListener rather than onpointerdown: the property form is not an
+    // event handler in every DOM (jsdom lacks it), the listener form is.
+    handle.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault();
+      handle.classList.add('dragging');
+      try { handle.setPointerCapture(ev.pointerId); } catch {}
+      const move = (e) => onMove(axis === 'x' ? e.clientX : e.clientY);
+      const up = () => {
+        handle.classList.remove('dragging');
+        document.removeEventListener('pointermove', move);
+        document.removeEventListener('pointerup', up);
+      };
+      document.addEventListener('pointermove', move);
+      document.addEventListener('pointerup', up);
+    });
+    handle.addEventListener('dblclick', onReset);
+  }
+
+  function applySizes() {
+    const w = saved(SIZES.side), h = saved(SIZES.term);
+    root.style.setProperty('--side-w', w ? `${w}px` : '');
+    if (h) { root.style.setProperty('--term-h', `${h}px`); root.dataset.termSized = '1'; }
+    else { root.style.removeProperty('--term-h'); delete root.dataset.termSized; }
+  }
+
+  function applySplit() {
+    const el = $('.split'); if (!el) return;
+    const r = parseFloat(saved(SIZES.split)) || 0.5;
+    const tpl = `minmax(0, ${r}fr) 6px minmax(0, ${1 - r}fr)`;
+    if (termMode === 'cols') { el.style.gridTemplateColumns = tpl; el.style.gridTemplateRows = ''; }
+    else { el.style.gridTemplateRows = tpl; el.style.gridTemplateColumns = '1fr'; }
+    el.style.gap = '0';
+  }
+
+  function wireSideGutter() {
+    const shell = $('.shell');
+    drag($('#side-gutter'), 'x', (x) => {
+      const w = clamp(x - shell.getBoundingClientRect().left, 180, 560);
+      store(SIZES.side, Math.round(w)); applySizes();
+    }, () => { store(SIZES.side, null); applySizes(); });
+  }
+
+  function wireTermGutter() {
+    const main = $('#main');
+    drag($('#term-gutter'), 'y', (y) => {
+      const r = main.getBoundingClientRect();
+      const h = clamp(r.bottom - y, 160, Math.max(160, r.height - 120));
+      store(SIZES.term, Math.round(h)); applySizes();
+    }, () => { store(SIZES.term, null); applySizes(); });
+  }
+
+  function wireSplitGutter() {
+    const g = root.querySelector('[data-split-gutter]'); if (!g) return;
+    drag(g, termMode === 'cols' ? 'x' : 'y', (pos) => {
+      const r = $('.split').getBoundingClientRect();
+      const size = termMode === 'cols' ? r.width : r.height;
+      if (!size) return;
+      const start = termMode === 'cols' ? r.left : r.top;
+      store(SIZES.split, clamp((pos - start) / size, 0.15, 0.85).toFixed(3)); applySplit();
+    }, () => { store(SIZES.split, null); applySplit(); });
   }
 
   // ------------------------------------------------------------- editor --
@@ -502,6 +585,8 @@
       root = el; $ = (s) => root.querySelector(s);
       root.innerHTML = SHELL();
       pendingSelect = param || null;
+      applySizes();
+      wireSideGutter();
       wireEditor();
       root.addEventListener('click', onClick);
       onKey = (ev) => {
