@@ -88,6 +88,7 @@ check('ตาราง ports แบ่งเป็นแถวละ 3 ช่อ
   [...kv.children].map((e) => e.className).join(' | '));
 check('ช่อง action ที่ไม่มีปุ่ม ว่างจริง (คอลัมน์จึงยุบได้ ไม่เหลือแถบว่าง)',
   [...kv.querySelectorAll('.a')].every((el) => el.querySelector('button') || el.childNodes.length === 0));
+check('เปิด stack → board ติดคลาส enter (กล่องไล่กันขึ้นมา)', d.querySelector('#board').classList.contains('enter'));
 feed('app', 'INFO listening :3000\n');
 check('stream เข้า terminal ของ pane นั้น', d.querySelector('[data-pre="app"]')?.textContent.includes(':3000'));
 click(d.querySelector('[data-clear="app"]'));
@@ -142,6 +143,9 @@ const alpha = stacks[0], keep = { ports: alpha.ports, detected: alpha.detected }
 alpha.ports = [{ port: 3000, holder: null, pid: null }]; alpha.detected = [];
 click(d.querySelector('#refresh')); await sleep(120);
 check('session รันแต่ port ยังไม่ bind → "กำลังเริ่ม" (เหลือง) และ badge เหลือง', stateEl()?.classList.contains('starting') && decodeURIComponent(d.querySelector('link[rel="icon"]').href).includes('#E0A030'), stateEl()?.className);
+check('สถานะเปลี่ยน → ป้ายกะพริบหนึ่งครั้ง', stateEl()?.classList.contains('flash'));
+click(d.querySelector('#refresh')); await sleep(120);
+check('poll ที่สถานะไม่เปลี่ยน → ไม่กะพริบซ้ำ (ไม่งั้นจะกะพริบทุก 4 วิ)', !stateEl()?.classList.contains('flash'));
 w.__hidden = true;
 alpha.exits = { app: 1 };
 click(d.querySelector('#refresh')); await sleep(120);
@@ -197,6 +201,7 @@ check('กดปุ่ม → drawer เปิด พร้อมรายกา
 const nPanels = d.querySelectorAll('#board .gp').length;
 ptr(d.querySelector('[data-add="term"]'), 'pointerdown', 500, 200); ptr(d, 'pointerup', 500, 200);
 check('ลาก terminal ออกมา → ได้กล่องใหม่ (ซ้ำ pane เดิมได้)', d.querySelectorAll('#board .gp').length === nPanels + 1 && !!d.querySelector('[data-gp="term:app#2"]'));
+check('เพิ่มกล่อง → ไม่ไล่ animation ใหม่ (กล่องที่กำลังลากต้องไม่จาง)', !d.querySelector('#board').classList.contains('enter'));
 check('วางแล้ว drawer ปิดเอง', d.querySelector('#drawer').hidden);
 check('กล่องใหม่ถูกบันทึกลง layout', !!saved()['term:app#2']);
 click(gpOf('term:app#2').querySelector('[data-remove]'));

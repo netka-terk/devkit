@@ -105,6 +105,12 @@ Stacks in detail:
   `nk` command it stands for, so the palette doubles as the CLI cheat sheet.
 - **Zoom**: double-click a panel header (or its ⤢) and it fills the board;
   again, or `Esc`, brings the layout back.
+- **Motion with a job**: transitions confirm a click landed, panels fade up in
+  sequence when a stack is opened, the drawer comes from its edge, a state that
+  changed rings once. Only two things loop, and both mean "still going": the
+  starting dot and the live dot. Opening a stack animates; the four-second poll
+  does not, so nothing on the page moves on its own. `prefers-reduced-motion`
+  turns the lot off in one rule.
 - **Board layout**: the stack page is a 12-column grid that always fills one
   screen — the row unit is derived from the space available, so the panels scale
   with the window instead of the page scrolling. Every panel (ports, commands,

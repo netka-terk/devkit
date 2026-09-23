@@ -145,7 +145,12 @@
     // panels change, so only those are rewritten.
     const key = `${s.name}|${(s.panes || []).map((p) => `${p.label}=${p.cmd}`).join('|')}`;
     if (main.dataset.key === key && $('#board')) {
+      const was = main.dataset.state;
       $('.d-head').innerHTML = headHtml(s);
+      main.dataset.state = stateOf(s);
+      // The header is rewritten on every poll, so the ring is added after the
+      // rewrite and only when the state is not the one that was there before.
+      if (was && was !== main.dataset.state) $('.d-head .state').classList.add('flash');
       patchPanels(s);
       paintExits(s);
       const wasRunning = main.dataset.running === '1';
@@ -156,6 +161,7 @@
     }
     main.dataset.key = key;
     main.dataset.running = s.running ? '1' : '0';
+    main.dataset.state = stateOf(s);
     zoom = null;
 
     main.innerHTML = `
@@ -173,7 +179,7 @@
           </button>`).join('')}</div>
       </aside>`;
 
-    renderBoard(s);
+    renderBoard(s, true);
     wireDrawer();
     attachTerm(s.name);
     paintExits(s);
@@ -463,8 +469,12 @@
     }
   }
 
-  function renderBoard(s) {
+  function renderBoard(s, animate) {
     const board = $('#board');
+    // The stagger belongs to opening a stack. Adding or removing one panel
+    // re-renders the board too, and a new panel is already under the pointer
+    // being dragged — it must not fade in from under it.
+    board.classList.toggle('enter', !!animate);
     layout = loadLayout(s);
     board.innerHTML = layout.map((it) => panelHtml(s, it)).join('') + `<div class="gp-ph" id="gp-ph" hidden></div>`;
     applyPositions();

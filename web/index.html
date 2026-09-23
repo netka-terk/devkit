@@ -20,6 +20,8 @@
     --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", "Noto Sans Thai", sans-serif;
     --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     --r: 8px;
+    --ease: cubic-bezier(.2, .7, .3, 1);
+    --fast: .13s; --med: .22s;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -100,7 +102,6 @@
   .btn svg { width: 14px; height: 14px; }
   .spin { animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
 
   /* ------------------------------------------------------------------ shell */
   /* ---------------------------------------------------------------- nav */
@@ -143,8 +144,14 @@
   .item {
     display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 10px;
     width: 100%; text-align: left; padding: 9px 10px; border-radius: var(--r);
-    border: 1px solid transparent; background: transparent;
+    border: 1px solid transparent; background: transparent; position: relative;
   }
+  .item::before {
+    content: ''; position: absolute; left: 0; top: 50%; width: 2px; height: 0;
+    background: var(--accent); border-radius: 0 2px 2px 0; transform: translateY(-50%);
+    transition: height var(--med) var(--ease);
+  }
+  .item.on::before { height: 62%; }
   .item:hover { background: var(--raised); }
   .item.on { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
   .item .nm { font-weight: 500; display: flex; align-items: baseline; gap: 8px; min-width: 0; }
@@ -228,11 +235,13 @@
   .gp {
     position: absolute; margin-right: 10px; display: flex; flex-direction: column; overflow: hidden;
     background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
-    transition: top .16s ease, left .16s ease, width .16s ease, height .16s ease;
+    transition: top .16s ease, left .16s ease, width .16s ease, height .16s ease,
+                border-color var(--med) var(--ease), box-shadow var(--med) var(--ease);
   }
   .gp.moving { transition: none; z-index: 6; box-shadow: var(--shadow); cursor: grabbing; }
   .gp-head {
     display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; flex: none;
+    transition: background-color var(--med) var(--ease), border-color var(--med) var(--ease);
     border-bottom: 1px solid var(--line); cursor: grab; user-select: none; touch-action: none;
     font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
   }
@@ -298,7 +307,8 @@
   .term-empty { color: #5E6875; padding: 20px 16px; font-family: var(--mono); font-size: 12.5px; }
   .gp .live { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11.5px; color: #8A94A2; }
   .gp .live .dot { width: 6px; height: 6px; background: #3E4A58; }
-  .gp .live.on .dot { background: #3CCB85; box-shadow: 0 0 0 3px rgba(60,203,133,.2); }
+  .gp .live.on .dot { background: #3CCB85; box-shadow: 0 0 0 3px rgba(60,203,133,.2); animation: breathe 3s ease-in-out infinite; }
+  @keyframes breathe { 50% { box-shadow: 0 0 0 5px rgba(60,203,133,.32); } }
   .gp .tbtn { height: 22px; padding: 0 8px; border-radius: 6px; border: 1px solid #262E38; background: transparent; color: #8A94A2; font-size: 12px; }
   .gp .tbtn:hover { color: #E6EAF0; border-color: #344050; }
   .d-actions .icon-btn { height: 32px; }
@@ -336,7 +346,6 @@
   .dot.starting { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
   .dot.bad { background: var(--bad); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 25%, transparent); }
   @keyframes pulse { 50% { opacity: .3; } }
-  @media (prefers-reduced-motion: reduce) { .dot.starting, .tbtn.wait { animation: none; } }
   .state.starting { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
   .state.starting .dot { background: var(--warn); box-shadow: none; animation: pulse 1.2s ease-in-out infinite; }
   .state.bad { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
@@ -394,7 +403,72 @@
   .toast code { color: var(--muted); font-size: 12px; }
   .toast pre { margin: 4px 0 0; font: 12px/1.45 var(--mono); color: var(--fg-2); white-space: pre-wrap; max-height: 140px; overflow: auto; }
   @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
-  @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+
+  /* ------------------------------------------------------------------ motion */
+  /* Every animation here has a job: a transition confirms the click landed, an
+     entry says where a thing came from, a one-shot flash marks a change worth
+     catching. Only two things loop, and both mean "still going" — the starting
+     dot and the live dot. */
+
+  /* Anything clickable answers the pointer. */
+  .btn, .icon-btn, .lang button, .pal-btn, .tbtn, .gp-x, .item, .menu a, .dr-item,
+  .pal-item, .browser div, .cmdrow button, .bang, .link, .swatch {
+    transition: background-color var(--fast) var(--ease), border-color var(--fast) var(--ease),
+                color var(--fast) var(--ease), box-shadow var(--fast) var(--ease),
+                opacity var(--fast) var(--ease), transform .09s var(--ease);
+  }
+  .btn:active:not(:disabled), .icon-btn:active, .pal-btn:active, .tbtn:active { transform: translateY(1px); }
+  .dr-item:hover { transform: translateY(-1px); }
+
+  /* Status marks ease between states instead of snapping, so a change reads as
+     a change rather than a repaint. */
+  .dot, .state, .st-pill, .tag, .chip { transition: background-color var(--med) var(--ease),
+    color var(--med) var(--ease), border-color var(--med) var(--ease), box-shadow var(--med) var(--ease); }
+
+  /* A state that just changed gets one ring, sized in its own colour. */
+  @keyframes flash {
+    from { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 45%, transparent); }
+    to   { box-shadow: 0 0 0 9px transparent; }
+  }
+  .state.flash { animation: flash .85s var(--ease); }
+
+  /* Dialogs arrive; their backdrop fades under them. */
+  @keyframes dlg-in { from { opacity: 0; transform: translateY(-10px) scale(.985); } }
+  @keyframes fade-in { from { opacity: 0; } }
+  dialog[open] { animation: dlg-in var(--med) var(--ease); }
+  dialog[open]::backdrop { animation: fade-in var(--med) var(--ease); }
+
+  /* The drawer comes from the edge it is attached to. */
+  @keyframes drawer-in { from { transform: translateX(100%); opacity: .3; } }
+  .drawer:not([hidden]) { animation: drawer-in var(--med) var(--ease); }
+
+  /* Board panels fade up when a stack is opened — never on a poll (the info
+     panels are patched in place) and never when one panel is added or removed,
+     because a new panel is already under the pointer being dragged. */
+  @keyframes gp-in { from { opacity: 0; transform: translateY(10px); } }
+  .board.enter .gp { animation: gp-in .28s var(--ease) both; }
+  .board.enter .gp:nth-child(2) { animation-delay: .045s; }
+  .board.enter .gp:nth-child(3) { animation-delay: .09s; }
+  .board.enter .gp:nth-child(4) { animation-delay: .135s; }
+  .board.enter .gp:nth-child(5) { animation-delay: .18s; }
+  .board.enter .gp:nth-child(n+6) { animation-delay: .22s; }
+
+  /* A tag that appears pops rather than blinks into place. */
+  @keyframes pop-in { from { opacity: 0; transform: scale(.88); } }
+  .tag.exit:not([hidden]) { animation: pop-in var(--fast) var(--ease); }
+
+  /* Toasts leave the way they arrived. */
+  @keyframes toast-out { to { opacity: 0; transform: translateY(6px) scale(.98); } }
+  .toast.out { animation: toast-out .19s var(--ease) forwards; }
+
+  /* One switch for all of it. Asked for less motion, the page still changes —
+     it just stops taking time over it. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+      transition-duration: .01ms !important;
+    }
+  }
 
   /* ------------------------------------------------------------ responsive */
   /* ------------------------------------------------------------- m-ports */
@@ -634,7 +708,7 @@ window.D3v = (() => {
       (cli ? `<code>$ ${esc(cli)}</code>` : '') +
       (detail ? `<pre>${esc(detail)}</pre>` : '');
     document.getElementById('toasts').append(el);
-    setTimeout(() => el.remove(), ttl);
+    setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 200); }, ttl);
   }
 
   const icons = {
