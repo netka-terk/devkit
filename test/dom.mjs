@@ -24,8 +24,11 @@ const detail = (n) => ({ name: n, dir: `/home/u/${n[0]}`, ports: '3000', url: 'h
 // 8 cores at 100 Hz = 1600 jiffies of capacity, 400 of them busy = 25%; the
 // stack burns 160 jiffies = 1.6 CPU-seconds out of 16 = 10% of the machine.
 let tick = 0;
+const burn = { alpha: 160, zeta: 80 };            // jiffies per reading, editable mid-test
+const acc = { alpha: 0, zeta: 0 };
 const statsSample = () => {
   tick++;
+  for (const k of Object.keys(acc)) acc[k] += burn[k];
   return {
     t: 1000 + tick * 2, cores: 8, hz: 100,
     cpu: { busy: 400 * tick, total: 1600 * tick },
@@ -34,8 +37,10 @@ const statsSample = () => {
     disk: { read: 1048576 * tick, written: 0 },
     net: { rx: 2048 * tick, tx: 0 },
     fs: { total: 1e12, free: 5e11 },
-    stacks: [{ name: 'alpha', cpu: 160 * tick, rss: 1e9, procs: 5,
-               panes: [{ label: 'app', pid: 42, cpu: 160 * tick, rss: 1e9, procs: 5 }] }],
+    stacks: Object.keys(acc).map((name) => ({
+      name, cpu: acc[name], rss: name === 'alpha' ? 1e9 : 5e8, procs: 5,
+      panes: [{ label: 'app', pid: 42, cpu: acc[name], rss: name === 'alpha' ? 1e9 : 5e8, procs: 5 }],
+    })),
   };
 };
 
@@ -319,30 +324,64 @@ check('แสดงเฉพาะ port ที่ใช้อยู่ (5000 ว
 check('port 3000 ที่ 2 stack ประกาศ → แถวเดียว เจ้าของคือตัวที่รัน', (d.querySelector('.m-ports').textContent.match(/:3000/g) || []).length === 1 && d.querySelector('.m-ports tbody tr').textContent.includes('alpha') && d.querySelector('.m-ports tbody tr').textContent.includes('ประกาศด้วย beta'));
 check('ปุ่มเคลียร์มีเฉพาะ port ที่ถูกจับนอก nk — ไม่มีที่ 3000', d.querySelectorAll('.m-ports [data-kill]').length === 1 && !!d.querySelector('.m-ports [data-kill="3080"]'));
 check('ปุ่ม stack ใหม่ ของ Stacks หายไปตอนอยู่เมนูอื่น', !d.querySelector('#new'));
-// Performance: raw counters in, rates out. The page keeps the previous sample
-// and divides, so every figure below is arithmetic done on this page.
+// Performance: raw counters in, rates out. Every figure below is arithmetic
+// this page does on two samples — 8 cores at 100 Hz over 2 seconds is 1600
+// jiffies of capacity, 400 of them busy is 25%; alpha burns 160 = 10% of the
+// machine, zeta 80 = 5%, and the 10% left over is everything else.
 calls.length = 0; w.location.hash = '#/perf'; await sleep(200);
 check('สลับไปเมนูทรัพยากร → mount และอ่านค่าเครื่อง', d.querySelector('#view').classList.contains('m-perf') && has('GET /api/stats'));
-check('ตัวอย่างเดียวยังคิดอัตราไม่ได้ → บอกว่ากำลังวัด', d.querySelector('[data-tile="cpu"] [data-sub]').textContent.includes('กำลังวัด'));
+check('มีกราฟใหญ่ 4 อัน', d.querySelectorAll('.charts .chart').length === 4);
+check('ตัวอย่างเดียวยังคิดอัตราไม่ได้ → บอกว่ากำลังวัด', !d.querySelector('[data-chart="cpu"] [data-empty]').hidden);
 check('หัวเรื่องบอกสเปกเครื่อง (คอร์ / RAM / ดิสก์ว่าง / เปิดมานาน)', (() => {
   const c = d.querySelector('#pf-chips').textContent;
   return c.includes('8') && c.includes('7.5 GB') && c.includes('2h 1m');
 })(), d.querySelector('#pf-chips').textContent);
+
 click(d.querySelector('#refresh')); await sleep(150);
-check('สองตัวอย่าง → CPU ของเครื่อง 25%', d.querySelector('[data-tile="cpu"] [data-v]').textContent.trim() === '25.0%', d.querySelector('[data-tile="cpu"] [data-v]').textContent);
-check('ดิสก์ 1 MiB ใน 2 วิ → 512 kB/s', d.querySelector('[data-tile="disk"] [data-v]').textContent.includes('512.0 kB'), d.querySelector('[data-tile="disk"] [data-v]').textContent);
-check('เครือข่าย 2048 B ใน 2 วิ → 1.0 kB/s', d.querySelector('[data-tile="net"] [data-v]').textContent.includes('1.0 kB'), d.querySelector('[data-tile="net"] [data-v]').textContent);
-check('หน่วยความจำใช้เกิน 75% → meter เปลี่ยนเป็นสีเตือน', d.querySelector('[data-tile="mem"] .meter').classList.contains('warn'), d.querySelector('[data-tile="mem"] .meter').className);
-check('CPU ของ stack คิดเป็นสัดส่วนของทั้งเครื่อง = 10%', d.querySelector('tr.pf-stack')?.textContent.includes('10.0%') && d.querySelector('tr.pf-stack').textContent.includes('alpha'), d.querySelector('tr.pf-stack')?.textContent);
+const tot = (id) => d.querySelector(`[data-chart="${id}"] [data-total]`).textContent.trim();
+check('CPU ของทั้งเครื่อง = 25%', tot('cpu') === '25.0%', tot('cpu'));
+check('ดิสก์ 1 MiB ใน 2 วิ → 512 kB/s', tot('disk') === '512.0 kB/s', tot('disk'));
+check('เครือข่าย 2048 B ใน 2 วิ → 1.0 kB/s', tot('net') === '1.0 kB/s', tot('net'));
+check('หน่วยความจำที่ใช้ = 6.5 GB', tot('mem').includes('6.0 GB') || tot('mem').includes('6.1 GB'), tot('mem'));
+
+// The legend is the identity channel and carries the value in writing, so no
+// band is told apart by colour alone.
+const lg = (id) => [...d.querySelectorAll(`[data-chart="${id}"] .lg`)];
+const lgOf = (id, text) => lg(id).find((e) => e.textContent.includes(text));
+check('กราฟ CPU มี legend ครบทุก band พร้อมตัวเลขกำกับ', lg('cpu').length === 3 && lgOf('cpu', 'alpha')?.textContent.includes('10.0%') && lgOf('cpu', 'zeta')?.textContent.includes('5.0%'), lg('cpu').map((e) => e.textContent.trim().replace(/\s+/g, ' ')).join(' | '));
+check('ส่วนที่เหลือของเครื่องเป็น band "อื่นๆ" = 10%', lgOf('cpu', 'อื่นๆ')?.textContent.includes('10.0%'), lgOf('cpu', 'อื่นๆ')?.textContent);
+check('กราฟดิสก์แบ่งเป็นอ่าน/เขียน กราฟเครือข่ายแบ่งเป็นเข้า/ออก',
+  lg('disk').length === 2 && !!lgOf('disk', 'อ่าน') && lg('net').length === 2 && !!lgOf('net', 'เข้า'));
+check('band "อื่นๆ" ใช้สีเทา (slot 0) ไม่กินสีประจำ series', lgOf('cpu', 'อื่นๆ')?.querySelector('i').getAttribute('style').includes('--s0'));
+
+click(d.querySelector('#refresh')); await sleep(150);
+const bands = d.querySelectorAll('[data-chart="cpu"] .band');
+check('มีประวัติ 2 เฟรมขึ้นไป → วาด band จริงครบทุก series', bands.length === 3 && (bands[0].getAttribute('d') || '').startsWith('M'));
+check('รอยต่อระหว่าง band เป็นเส้นสีพื้นหลัง ไม่ใช่เส้นขอบรอบ band', d.querySelectorAll('[data-chart="cpu"] .seam').length === 2);
+check('แกน CPU ตรึงที่ 100% เครื่องที่ว่างจึงดูว่าง', [...d.querySelectorAll('[data-chart="cpu"] .tick')].some((e) => e.textContent === '100.0%'), [...d.querySelectorAll('[data-chart="cpu"] .tick')].map((e) => e.textContent).join(','));
+check('แกนหน่วยความจำตรึงที่ RAM ทั้งหมด จึงเห็นที่เหลือ', [...d.querySelectorAll('[data-chart="mem"] .tick')].some((e) => e.textContent === '7.5 GB'));
+check('เส้นกริดเป็นเส้นบางทึบ ไม่ใช่เส้นประ', !!d.querySelector('[data-chart="cpu"] .grid') && !d.querySelector('[data-chart="cpu"] [stroke-dasharray]'));
+check('ค่ารวมตัวใหญ่ไม่ใช้ tabular-nums (ตัวเลขจะดูโปร่ง)', !d.querySelector('[data-chart="cpu"] [data-total]').classList.contains('num'));
+
+// Colour follows the stack, never its rank: swapping which stack is busiest
+// must not repaint either of them.
+const slotOfLg = (id, name) => lgOf(id, name)?.querySelector('i').getAttribute('style');
+const hues = [slotOfLg('cpu', 'alpha'), slotOfLg('cpu', 'zeta')];
+check('แต่ละ stack ได้สีคนละ slot', hues[0] !== hues[1] && hues[0].includes('--s1'), hues.join(' / '));
+burn.alpha = 80; burn.zeta = 160;
+click(d.querySelector('#refresh')); await sleep(150);
+check('สลับว่าใครกินมากสุด → สีไม่สลับตาม (ไม่ใช่สีตามอันดับ)',
+  slotOfLg('cpu', 'alpha') === hues[0] && slotOfLg('cpu', 'zeta') === hues[1],
+  `${slotOfLg('cpu', 'alpha')} / ${slotOfLg('cpu', 'zeta')}`);
+check('ตอนนี้ zeta กินมากกว่า จริงๆ', lgOf('cpu', 'zeta')?.textContent.includes('10.0%'), lgOf('cpu', 'zeta')?.textContent);
+
+// The table is the chart's table-view twin, and goes down to each pane.
+const trow = [...d.querySelectorAll('tr.pf-stack')].find((e) => e.textContent.includes('zeta'));
+check('ตารางเรียงตัวที่กิน CPU มากสุดขึ้นก่อน', d.querySelector('tr.pf-stack')?.textContent.includes('zeta'), d.querySelector('tr.pf-stack')?.textContent.trim());
+check('ตารางบอก CPU เป็นสัดส่วนของทั้งเครื่อง', trow?.textContent.includes('10.0%'));
 check('แต่ละ pane มีแถวของตัวเอง', d.querySelector('tr.pf-pane')?.textContent.includes('app'));
-check('ชื่อ stack ลิงก์กลับไปหน้า Stacks', d.querySelector('tr.pf-stack a')?.getAttribute('href') === '#/stacks/alpha');
+check('ชื่อ stack ลิงก์กลับไปหน้า Stacks', d.querySelector('tr.pf-stack a')?.getAttribute('href') === '#/stacks/zeta');
 check('แถบในตารางวัดจากทั้งเครื่อง ไม่ใช่จาก stack ที่กินมากสุด', parseFloat(d.querySelector('tr.pf-stack .meter i')?.style.width) === 10, d.querySelector('tr.pf-stack .meter i')?.style.width);
-check('ค่าตัวใหญ่ไม่ใช้ tabular-nums (ตัวเลขจะดูโปร่ง)', !d.querySelector('[data-tile="cpu"] [data-v]').classList.contains('num'));
-click(d.querySelector('#refresh')); await sleep(150);
-const sparkD = d.querySelector('[data-tile="cpu"] .spark .line').getAttribute('d') || '';
-check('มีประวัติ 2 จุดขึ้นไป → sparkline วาดเส้นจริง', sparkD.startsWith('M') && sparkD.includes('L'), sparkD.slice(0, 40));
-check('จุดท้ายเส้นแสดงค่าล่าสุด', !d.querySelector('[data-tile="cpu"] .spark-dot').hidden);
-w.location.hash = '#/perf'; await sleep(50);
 
 w.location.hash = '#/stacks/beta'; await sleep(200);
 check('ออกจากหน้าทรัพยากรแล้วประวัติถูกล้าง (ไม่เอาอัตราเก่ามาปน)', !d.querySelector('.m-perf'));

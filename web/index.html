@@ -497,49 +497,70 @@
   .tbl .wrap-x { overflow-x: auto; }
 
   /* -------------------------------------------------------------- m-perf */
-  .m-perf { padding: 22px 28px 28px; gap: 16px; overflow: auto; }
+  /* The series slots, in the order that clears every colour-blindness gate on
+     this page's own surfaces for adjacent marks — which is what the bands of a
+     stack are. Dark is the same hues stepped for the dark surface, declared
+     under both the OS media query and the theme toggle so the toggle wins
+     either way. Slot 0 is the grey for "everything else": that band is
+     context, not an identity, so it never takes a hue. */
+  .m-perf {
+    --s0: #A8B0BA; --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+    padding: 22px 28px 28px; gap: 16px; overflow: auto;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .m-perf {
+      --s0: #5E6875; --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    }
+  }
+  :root[data-theme="dark"] .m-perf {
+    --s0: #5E6875; --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  }
   .m-perf .head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
   .m-perf h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -.015em; }
   .m-perf .p-head { display: block; }
   .p-note { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--faint); margin-left: 10px; }
 
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 14px; }
-  .tile {
-    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
-    padding: 14px 16px 0; display: flex; flex-direction: column; gap: 3px; overflow: hidden;
-  }
-  .t-label { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 14px; }
+  .chart { display: flex; flex-direction: column; padding-bottom: 8px; }
+  .c-head { display: flex; align-items: baseline; gap: 10px; padding: 12px 16px 0; }
+  .c-title { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
   /* Proportional figures on purpose: tabular-nums gives every digit the width
-     of a zero, which reads loose at this size. Tabular belongs in the columns
-     of the table below, where numbers have to line up. */
-  .t-value { font-size: 27px; font-weight: 600; letter-spacing: -.02em; line-height: 1.15; }
-  .t-value small { font-size: 15px; font-weight: 500; color: var(--muted); margin-left: 1px; }
-  .t-sub { font-size: 12px; color: var(--muted); min-height: 18px; }
-  .t-sub .num { color: var(--fg-2); }
+     of a zero, which reads loose at this size. Tabular belongs in the table
+     below, where the columns have to line up. */
+  .c-value { margin-left: auto; font-size: 21px; font-weight: 600; letter-spacing: -.02em; }
+  .c-legend { display: flex; flex-wrap: wrap; gap: 5px 14px; padding: 9px 16px 3px; }
+  .lg { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .lg b { color: var(--fg-2); font-weight: 500; }
+  .lg i, .ct-r i, i.lgd { width: 9px; height: 9px; border-radius: 2px; flex: none; display: inline-block; }
+  i.lgd { margin-right: 7px; vertical-align: -1px; }
 
-  /* The trend is a 2px line over a 10% wash of the same hue with the newest
-     sample marked, and no grid: a sparkline carries the shape, and the value
-     it ends on is already spelled out above it. */
-  .sparkbox { position: relative; height: 46px; margin: 8px -16px 0; cursor: crosshair; }
-  .spark { display: block; width: 100%; height: 100%; }
-  .spark .area { fill: var(--accent); opacity: .1; }
-  .spark .line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-  .spark-dot {
-    position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
-    box-shadow: 0 0 0 2px var(--surface); transform: translate(-50%, -50%); pointer-events: none;
+  /* The plot box includes the tick band, so the axis is never the thing that
+     gets a nested scrollbar. */
+  .c-plot { position: relative; height: 170px; }
+  .c-plot svg { display: block; width: 100%; height: 100%; }
+  .c-plot .grid { stroke: var(--line); stroke-width: 1; }
+  .c-plot .tick { fill: var(--faint); font: 10.5px var(--mono); font-variant-numeric: tabular-nums; }
+  .c-plot .band { fill-opacity: .8; }
+  /* A 2px gap in the surface colour is what separates two fills — never a
+     border drawn around one. */
+  .c-plot .seam { fill: none; stroke: var(--surface); stroke-width: 2; stroke-linejoin: round; }
+  .c-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--faint); font-size: 12.5px; }
+  .c-plot .crosshair { position: absolute; top: 10px; bottom: 20px; width: 1px; background: var(--line-strong); pointer-events: none; }
+  .ct {
+    position: absolute; top: 12px; z-index: 2; pointer-events: none;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+    box-shadow: var(--shadow); padding: 7px 9px; font-size: 12px; min-width: 130px;
   }
-  .crosshair { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line-strong); pointer-events: none; }
+  .ct-t { color: var(--muted); font-size: 11px; margin-bottom: 3px; }
+  .ct-t b { color: var(--fg); }
+  .ct-r { display: flex; align-items: center; gap: 6px; color: var(--fg-2); line-height: 1.7; }
+  .ct-r b { margin-left: auto; padding-left: 12px; color: var(--fg); font-weight: 500; }
 
-  /* A ratio against a limit is a meter: the fill carries the severity and the
-     track is the same hue at low opacity, so the state reads across the whole
-     bar. Square where it starts, 4px rounded where the data ends. */
-  .meter { --m: var(--accent); height: 8px; border-radius: 4px; margin: auto 0 14px;
+  /* Square where it starts, 4px rounded where the data ends. */
+  .meter { --m: var(--accent); height: 6px; border-radius: 4px;
            background: color-mix(in srgb, var(--m) 16%, transparent); }
   .meter > i { display: block; height: 100%; background: var(--m); border-radius: 0 4px 4px 0;
                transition: width .4s var(--ease); }
-  .meter.warn { --m: var(--warn); }
-  .meter.bad { --m: var(--bad); }
-  .meter.flat { margin: 0; height: 6px; }
 
   tr.pf-stack td { font-weight: 500; }
   tr.pf-stack td:first-child { padding-top: 13px; }
@@ -737,6 +758,7 @@ window.D3v = (() => {
     'pf.free': ['ดิสก์ว่าง', 'disk free'], 'pf.up': ['เปิดมา', 'up'],
     'pf.load': ['load', 'load'], 'pf.procs': ['process', 'processes'],
     'pf.of': ['จาก', 'of'], 'pf.swap': ['swap', 'swap'],
+    'pf.other': ['อื่นๆ', 'Other'],
     'pf.read': ['อ่าน', 'read'], 'pf.write': ['เขียน', 'write'],
     'pf.in': ['เข้า', 'in'], 'pf.out': ['ออก', 'out'],
     'pf.stacks': ['ใครใช้เครื่องอยู่', 'What is using the machine'],

@@ -66,12 +66,26 @@ Performance in detail:
   never rates, so the reading stays stateless and costs one `/proc` scan (about
   40ms). The page keeps the previous sample, divides by the elapsed time, and
   gets its two minutes of history for free — nothing is written to disk.
-- **Charts you can read.** Each measure is a stat tile: a label, the value, a
-  line of context, and the trend under it. CPU's trend is fixed to 0–100% so a
-  quiet machine looks quiet; disk and network scale to what they have seen.
-  Memory is a ratio against a limit, so it is a meter whose fill carries the
-  severity. Hovering a trend puts a hairline on the sample and says what it was.
-  Nothing is encoded in colour alone — every figure is also written out.
+- **Four charts, each a part-to-whole over time.** The height is the total and
+  the bands say what it is made of: CPU and memory break down by stack, with
+  everything else on the machine as one grey band; disk splits into read and
+  write, network into in and out. The headline figure is the sum of the bands
+  drawn, so the number and the chart can never tell different stories.
+- **Axes that tell the truth.** CPU is pinned to 0–100% and memory to the RAM
+  installed, so a quiet machine looks quiet and headroom is visible. Disk and
+  network have no natural ceiling, so they scale to what they have seen, rounded
+  to a number worth reading. Gridlines are hairline and solid; the ticks carry
+  the values the bands do not.
+- **Colour follows the stack, not its rank.** A stack takes its slot the first
+  time it is seen and keeps it, so the busiest one changing does not repaint the
+  others. The slots are the eight-hue order validated for colour-blindness on
+  this page's own light and dark surfaces, and a ninth stack is never given a
+  generated hue — past the fourth it folds into the grey band and stays in the
+  table. Nothing is identified by colour alone: the legend writes out every
+  band's current value, and the table underneath is the whole thing in text.
+- **Hovering** puts a hairline on the sample under the pointer and lists every
+  band at that moment. The whole plot is the target, so nothing has to be hit
+  precisely, and no value exists only inside the tooltip.
 
 Stacks in detail:
 
