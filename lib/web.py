@@ -165,6 +165,15 @@ class Handler(BaseHTTPRequestHandler):
             except json.JSONDecodeError:
                 return self.send_json(500, {"error": "nk status คืน JSON ไม่ถูกต้อง"})
 
+        if path == "/api/stats":
+            rc, out, err = run_nk(["stats", "--json"], timeout=15)
+            if rc != 0:
+                return self.send_json(500, {"error": err.strip() or "nk stats ล้มเหลว"})
+            try:
+                return self.send_json(200, json.loads(out))
+            except json.JSONDecodeError:
+                return self.send_json(500, {"error": "nk stats คืน JSON ไม่ถูกต้อง"})
+
         if path.startswith("/api/logs/"):
             name = self.stack_from(path, "/api/logs/")
             if not name:

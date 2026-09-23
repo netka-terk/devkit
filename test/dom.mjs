@@ -7,7 +7,7 @@ import { JSDOM } from 'jsdom';
 const html = fs.readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
 // jsdom ignores <script src> without a resource loader, so the menu modules are
 // injected by hand after the shell has run — same order as the page.
-const modules = ['stacks', 'ports'].map((m) => fs.readFileSync(new URL(`../web/modules/${m}.js`, import.meta.url), 'utf8'));
+const modules = ['stacks', 'ports', 'perf'].map((m) => fs.readFileSync(new URL(`../web/modules/${m}.js`, import.meta.url), 'utf8'));
 const stacks = [
   { name: 'alpha', origin: 'user', dir: '/home/u/a', url: 'http://x', note: 'n',
     running: true, hasToken: false, ports: [{ port: 3000, holder: 'node', pid: 42 }],
@@ -19,13 +19,34 @@ const stacks = [
 const detail = (n) => ({ name: n, dir: `/home/u/${n[0]}`, ports: '3000', url: 'http://x', note: '',
   envFile: '', apiBase: 'http://x/api', tokenCmd: 'make tok', panes: [{ label: 'app', cmd: 'make run' }], hasSudo: n === 'alpha' });
 
+// Counters that advance by a known amount every reading, so the numbers the
+// page prints are its own arithmetic and not a fixture. Per tick: 2 seconds,
+// 8 cores at 100 Hz = 1600 jiffies of capacity, 400 of them busy = 25%; the
+// stack burns 160 jiffies = 1.6 CPU-seconds out of 16 = 10% of the machine.
+let tick = 0;
+const statsSample = () => {
+  tick++;
+  return {
+    t: 1000 + tick * 2, cores: 8, hz: 100,
+    cpu: { busy: 400 * tick, total: 1600 * tick },
+    mem: { total: 8e9, available: 1.5e9, swapTotal: 4e9, swapFree: 4e9 },
+    load: [0.5, 0.4, 0.3], uptime: 7265, procs: 100,
+    disk: { read: 1048576 * tick, written: 0 },
+    net: { rx: 2048 * tick, tx: 0 },
+    fs: { total: 1e12, free: 5e11 },
+    stacks: [{ name: 'alpha', cpu: 160 * tick, rss: 1e9, procs: 5,
+               panes: [{ label: 'app', pid: 42, cpu: 160 * tick, rss: 1e9, procs: 5 }] }],
+  };
+};
+
 const calls = [];
 const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://localhost/',
   beforeParse(w) {
     w.fetch = async (url, opts = {}) => {
       calls.push(`${opts.method || 'GET'} ${url}`);
       if (opts.body) w.__lastBody = JSON.parse(opts.body);
-      const body = url === '/api/stacks' ? stacks
+      const body = url === '/api/stats' ? statsSample()
+        : url === '/api/stacks' ? stacks
         : url.startsWith('/api/stack/') ? detail(decodeURIComponent(url.split('/').pop()))
         : url.startsWith('/api/browse') ? { path: '/home/u', parent: '/home', dirs: ['a', 'b'] }
         : { ok: true, output: 'done' };
@@ -54,7 +75,7 @@ const has = (c) => calls.some((x) => x.startsWith(c));
 
 for (const src of modules) w.eval(src);
 await sleep(200);
-check('shell มีเมนู 2 อัน', d.querySelectorAll('#menu [data-route]').length === 2);
+check('shell มีเมนู 3 อัน', d.querySelectorAll('#menu [data-route]').length === 3);
 check('เมนูแรก (Stacks) ถูก mount และ active', d.querySelector('#view').classList.contains('m-stacks') && d.querySelector('[data-route="stacks"]').classList.contains('on'));
 check('title เป็นชื่อโปรแกรม พร้อม badge สถานะนำหน้า', d.title === '1/2 up · สแต็ก · D3v', d.title);
 check('favicon เป็นจุดสีตามสถานะ (เขียว: มีตัวรันและไม่มีตัวตาย)', decodeURIComponent(d.querySelector('link[rel="icon"]')?.href || '').includes('#1F9D62'));
@@ -298,7 +319,33 @@ check('แสดงเฉพาะ port ที่ใช้อยู่ (5000 ว
 check('port 3000 ที่ 2 stack ประกาศ → แถวเดียว เจ้าของคือตัวที่รัน', (d.querySelector('.m-ports').textContent.match(/:3000/g) || []).length === 1 && d.querySelector('.m-ports tbody tr').textContent.includes('alpha') && d.querySelector('.m-ports tbody tr').textContent.includes('ประกาศด้วย beta'));
 check('ปุ่มเคลียร์มีเฉพาะ port ที่ถูกจับนอก nk — ไม่มีที่ 3000', d.querySelectorAll('.m-ports [data-kill]').length === 1 && !!d.querySelector('.m-ports [data-kill="3080"]'));
 check('ปุ่ม stack ใหม่ ของ Stacks หายไปตอนอยู่เมนูอื่น', !d.querySelector('#new'));
+// Performance: raw counters in, rates out. The page keeps the previous sample
+// and divides, so every figure below is arithmetic done on this page.
+calls.length = 0; w.location.hash = '#/perf'; await sleep(200);
+check('สลับไปเมนูทรัพยากร → mount และอ่านค่าเครื่อง', d.querySelector('#view').classList.contains('m-perf') && has('GET /api/stats'));
+check('ตัวอย่างเดียวยังคิดอัตราไม่ได้ → บอกว่ากำลังวัด', d.querySelector('[data-tile="cpu"] [data-sub]').textContent.includes('กำลังวัด'));
+check('หัวเรื่องบอกสเปกเครื่อง (คอร์ / RAM / ดิสก์ว่าง / เปิดมานาน)', (() => {
+  const c = d.querySelector('#pf-chips').textContent;
+  return c.includes('8') && c.includes('7.5 GB') && c.includes('2h 1m');
+})(), d.querySelector('#pf-chips').textContent);
+click(d.querySelector('#refresh')); await sleep(150);
+check('สองตัวอย่าง → CPU ของเครื่อง 25%', d.querySelector('[data-tile="cpu"] [data-v]').textContent.trim() === '25.0%', d.querySelector('[data-tile="cpu"] [data-v]').textContent);
+check('ดิสก์ 1 MiB ใน 2 วิ → 512 kB/s', d.querySelector('[data-tile="disk"] [data-v]').textContent.includes('512.0 kB'), d.querySelector('[data-tile="disk"] [data-v]').textContent);
+check('เครือข่าย 2048 B ใน 2 วิ → 1.0 kB/s', d.querySelector('[data-tile="net"] [data-v]').textContent.includes('1.0 kB'), d.querySelector('[data-tile="net"] [data-v]').textContent);
+check('หน่วยความจำใช้เกิน 75% → meter เปลี่ยนเป็นสีเตือน', d.querySelector('[data-tile="mem"] .meter').classList.contains('warn'), d.querySelector('[data-tile="mem"] .meter').className);
+check('CPU ของ stack คิดเป็นสัดส่วนของทั้งเครื่อง = 10%', d.querySelector('tr.pf-stack')?.textContent.includes('10.0%') && d.querySelector('tr.pf-stack').textContent.includes('alpha'), d.querySelector('tr.pf-stack')?.textContent);
+check('แต่ละ pane มีแถวของตัวเอง', d.querySelector('tr.pf-pane')?.textContent.includes('app'));
+check('ชื่อ stack ลิงก์กลับไปหน้า Stacks', d.querySelector('tr.pf-stack a')?.getAttribute('href') === '#/stacks/alpha');
+check('แถบในตารางวัดจากทั้งเครื่อง ไม่ใช่จาก stack ที่กินมากสุด', parseFloat(d.querySelector('tr.pf-stack .meter i')?.style.width) === 10, d.querySelector('tr.pf-stack .meter i')?.style.width);
+check('ค่าตัวใหญ่ไม่ใช้ tabular-nums (ตัวเลขจะดูโปร่ง)', !d.querySelector('[data-tile="cpu"] [data-v]').classList.contains('num'));
+click(d.querySelector('#refresh')); await sleep(150);
+const sparkD = d.querySelector('[data-tile="cpu"] .spark .line').getAttribute('d') || '';
+check('มีประวัติ 2 จุดขึ้นไป → sparkline วาดเส้นจริง', sparkD.startsWith('M') && sparkD.includes('L'), sparkD.slice(0, 40));
+check('จุดท้ายเส้นแสดงค่าล่าสุด', !d.querySelector('[data-tile="cpu"] .spark-dot').hidden);
+w.location.hash = '#/perf'; await sleep(50);
+
 w.location.hash = '#/stacks/beta'; await sleep(200);
+check('ออกจากหน้าทรัพยากรแล้วประวัติถูกล้าง (ไม่เอาอัตราเก่ามาปน)', !d.querySelector('.m-perf'));
 check('deep link #/stacks/beta → กลับมาที่ Stacks และเลือก beta', d.querySelector('#view').classList.contains('m-stacks') && d.querySelector('#main h1')?.textContent.includes('beta'));
 click(d.querySelector('#theme'));
 check('สลับธีม stamp data-theme', ['dark', 'light'].includes(d.documentElement.dataset.theme));

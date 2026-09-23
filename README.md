@@ -16,6 +16,7 @@ removes the `make run` → error → `lsof -i :PORT` → `kill -9` → `make run
     nk down all
     nk kill 3000           # free a port without touching a stack
     nk ports grafana       # what the running stack actually listens on
+    nk stats               # CPU/RAM of the machine, and of each running stack
 
     nk init                # scaffold .nk/<name>.sh for the current project
     nk list                # stacks visible from here, and where each came from
@@ -47,6 +48,30 @@ Menus today:
 - **Stacks** — the nk console: define, run, stop, watch.
 - **Ports** — every port the stacks declare or were seen using, who holds it
   now, conflicts between stacks, and a clear button for anything held outside nk.
+- **Performance** — what the machine is doing and which stack is doing it.
+
+Performance in detail:
+
+- **A stack's share, not just the machine's load.** `htop` can tell you the box
+  is busy; what it cannot tell you is that `grafana`'s webpack is the reason.
+  Attribution comes from tmux: every pane of an `nk-` session is a root, and
+  everything below it in the process tree belongs to that pane. So the figure is
+  what a stack's commands and their children actually cost.
+- **One scale throughout.** CPU is a share of the whole machine everywhere, host
+  tile and stack rows alike, so they are comparable and they add up: one full
+  core of eight is 12.5%. The bar beside each stack is measured against the whole
+  machine too, so a stack using a tenth of the box looks like a tenth even when
+  it is the only one running.
+- **Rates are computed on the page.** `nk stats --json` returns raw counters and
+  never rates, so the reading stays stateless and costs one `/proc` scan (about
+  40ms). The page keeps the previous sample, divides by the elapsed time, and
+  gets its two minutes of history for free — nothing is written to disk.
+- **Charts you can read.** Each measure is a stat tile: a label, the value, a
+  line of context, and the trend under it. CPU's trend is fixed to 0–100% so a
+  quiet machine looks quiet; disk and network scale to what they have seen.
+  Memory is a ratio against a limit, so it is a meter whose fill carries the
+  severity. Hovering a trend puts a hairline on the sample and says what it was.
+  Nothing is encoded in colour alone — every figure is also written out.
 
 Stacks in detail:
 

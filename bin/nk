@@ -479,6 +479,16 @@ cmd_secret() {
   esac
 }
 
+# ================================================================== stats ====
+
+# cmd_stats [--json] — what the machine, and each running stack, is using.
+# The reading is one /proc scan in lib/stats.py; a stack's share comes from the
+# process tree under its tmux panes, so it is what the commands actually cost.
+cmd_stats() {
+  command -v python3 >/dev/null || die "ต้องมี python3 ก่อน"
+  exec python3 "$NK_ROOT/lib/stats.py" "$@"
+}
+
 # ================================================================= nopass ====
 
 # cmd_nopass <command> — let `sudo <command>` run without a password, for this
@@ -581,6 +591,7 @@ ${C_B}nk${C_0} — dev stack runner (ใช้ได้กับทุกโป�
   ${C_B}nk logs <stack> [n]${C_0}    ดึง log ล่าสุดจากทุก pane (default 200 บรรทัด)
   ${C_B}nk kill <port>...${C_0}      เคลียร์ port ตรงๆ
   ${C_B}nk ports <stack>${C_0}       port ที่ stack ที่รันอยู่ listen จริง (ตรวจจาก process ใน pane)
+  ${C_B}nk stats [--json]${C_0}      CPU/RAM ของเครื่อง และของแต่ละ stack ที่รันอยู่
   ${C_B}nk list [-n]${C_0}           stack ทั้งหมด
   ${C_B}nk init [name]${C_0}         สร้าง stack ให้โฟลเดอร์ปัจจุบัน
   ${C_B}nk rename <เดิม> <ใหม่>${C_0}  เปลี่ยนชื่อ stack (ต้องหยุดอยู่)
@@ -621,6 +632,7 @@ case ${1:-help} in
   logdir)   printf '%s\n' "$NK_CACHE/logs" ;;
   show)     shift; cmd_show "$@" ;;
   ports)    shift; cmd_ports "$@" ;;
+  stats)    shift; cmd_stats "$@" ;;
   rename)   shift; cmd_rename "$@" ;;
   send)     shift; cmd_send "$@" ;;
   secret)   shift; cmd_secret "$@" ;;

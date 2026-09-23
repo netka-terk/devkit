@@ -496,6 +496,56 @@
   .st-pill.muted { color: var(--faint); }
   .tbl .wrap-x { overflow-x: auto; }
 
+  /* -------------------------------------------------------------- m-perf */
+  .m-perf { padding: 22px 28px 28px; gap: 16px; overflow: auto; }
+  .m-perf .head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  .m-perf h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -.015em; }
+  .m-perf .p-head { display: block; }
+  .p-note { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--faint); margin-left: 10px; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 14px; }
+  .tile {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px 0; display: flex; flex-direction: column; gap: 3px; overflow: hidden;
+  }
+  .t-label { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  /* Proportional figures on purpose: tabular-nums gives every digit the width
+     of a zero, which reads loose at this size. Tabular belongs in the columns
+     of the table below, where numbers have to line up. */
+  .t-value { font-size: 27px; font-weight: 600; letter-spacing: -.02em; line-height: 1.15; }
+  .t-value small { font-size: 15px; font-weight: 500; color: var(--muted); margin-left: 1px; }
+  .t-sub { font-size: 12px; color: var(--muted); min-height: 18px; }
+  .t-sub .num { color: var(--fg-2); }
+
+  /* The trend is a 2px line over a 10% wash of the same hue with the newest
+     sample marked, and no grid: a sparkline carries the shape, and the value
+     it ends on is already spelled out above it. */
+  .sparkbox { position: relative; height: 46px; margin: 8px -16px 0; cursor: crosshair; }
+  .spark { display: block; width: 100%; height: 100%; }
+  .spark .area { fill: var(--accent); opacity: .1; }
+  .spark .line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .spark-dot {
+    position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 0 2px var(--surface); transform: translate(-50%, -50%); pointer-events: none;
+  }
+  .crosshair { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line-strong); pointer-events: none; }
+
+  /* A ratio against a limit is a meter: the fill carries the severity and the
+     track is the same hue at low opacity, so the state reads across the whole
+     bar. Square where it starts, 4px rounded where the data ends. */
+  .meter { --m: var(--accent); height: 8px; border-radius: 4px; margin: auto 0 14px;
+           background: color-mix(in srgb, var(--m) 16%, transparent); }
+  .meter > i { display: block; height: 100%; background: var(--m); border-radius: 0 4px 4px 0;
+               transition: width .4s var(--ease); }
+  .meter.warn { --m: var(--warn); }
+  .meter.bad { --m: var(--bad); }
+  .meter.flat { margin: 0; height: 6px; }
+
+  tr.pf-stack td { font-weight: 500; }
+  tr.pf-stack td:first-child { padding-top: 13px; }
+  tr.pf-pane td { color: var(--muted); border-bottom-color: transparent; }
+  tr.pf-pane td:first-child { padding-left: 26px; }
+
   @media (max-width: 760px) {
     .menu a span:not(.k) { display: none; }
     .pal-btn span { display: none; }
@@ -508,7 +558,7 @@
     .gp { position: static !important; width: auto !important; height: 260px !important; }
     .gp.term { height: 320px !important; }
     .gp-resize, .gp-ph { display: none; }
-    .m-ports { padding: 16px; }
+    .m-ports, .m-perf { padding: 16px; }
     .side { border-right: 0; border-bottom: 1px solid var(--line); max-height: 40vh; }
     .side-foot { display: none; }
     .detail { padding: 16px 16px 0; }
@@ -561,6 +611,7 @@ window.D3v = (() => {
   const STR = {
     'menu.stacks': ['สแต็ก', 'Stacks'],
     'menu.ports': ['พอร์ต', 'Ports'],
+    'menu.perf': ['ทรัพยากร', 'Performance'],
     'chrome.theme': ['สลับธีม', 'Toggle theme'],
     'chrome.refresh': ['รีเฟรช', 'Refresh'],
     'chrome.lang': ['เปลี่ยนภาษา', 'Switch language'],
@@ -679,6 +730,25 @@ window.D3v = (() => {
     'po.also.title': ['stack อื่นที่ประกาศ port เดียวกัน — รันพร้อมกันไม่ได้', 'Other stacks declaring the same port — they cannot run together'],
     'po.empty': ['ไม่มี port ที่ใช้อยู่ตอนนี้', 'No ports in use right now'],
     'po.load.fail': ['โหลด port ไม่ได้', 'Could not load ports'],
+
+    'pf.cpu': ['CPU', 'CPU'], 'pf.mem': ['หน่วยความจำ', 'Memory'],
+    'pf.disk': ['ดิสก์', 'Disk'], 'pf.net': ['เครือข่าย', 'Network'],
+    'pf.cores': ['คอร์', 'cores'], 'pf.ram': ['RAM', 'RAM'],
+    'pf.free': ['ดิสก์ว่าง', 'disk free'], 'pf.up': ['เปิดมา', 'up'],
+    'pf.load': ['load', 'load'], 'pf.procs': ['process', 'processes'],
+    'pf.of': ['จาก', 'of'], 'pf.swap': ['swap', 'swap'],
+    'pf.read': ['อ่าน', 'read'], 'pf.write': ['เขียน', 'write'],
+    'pf.in': ['เข้า', 'in'], 'pf.out': ['ออก', 'out'],
+    'pf.stacks': ['ใครใช้เครื่องอยู่', 'What is using the machine'],
+    'pf.ofmachine': ['CPU คิดเป็นสัดส่วนของทั้งเครื่อง — 1 คอร์เต็มบนเครื่อง 8 คอร์ = 12.5%',
+                     'CPU is a share of the whole machine — one full core of eight is 12.5%'],
+    'pf.h.stack': ['Stack', 'Stack'], 'pf.h.pane': ['Pane', 'Pane'],
+    'pf.h.cpu': ['CPU', 'CPU'], 'pf.h.mem': ['หน่วยความจำ', 'Memory'], 'pf.h.procs': ['Process', 'Procs'],
+    'pf.none': ['ไม่มี stack รันอยู่ — ตัวเลขด้านบนคือทั้งเครื่อง',
+                'No stack is running — the figures above are the whole machine'],
+    'pf.wait': ['กำลังวัด…', 'measuring…'],
+    'pf.ago': ['{s} วิที่แล้ว', '{s}s ago'], 'pf.nowish': ['ล่าสุด', 'latest'],
+    'pf.load.fail': ['อ่านค่าทรัพยากรไม่ได้', 'Could not read the machine stats'],
   };
   let lang = 'th';
   try { lang = localStorage.getItem('d3v-lang') || ((navigator.language || '').toLowerCase().startsWith('th') ? 'th' : 'en'); } catch {}
@@ -727,6 +797,7 @@ window.D3v = (() => {
     grid: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg>',
     stack: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 5.5L8 2.5l5.5 3L8 8.5z"/><path d="M2.5 8.5L8 11.5l5.5-3M2.5 11.5L8 14.5l5.5-3"/></svg>',
     port: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="4.5" width="11" height="7" rx="1.5"/><path d="M5.5 7.5v1M8 7.5v1M10.5 7.5v1"/></svg>',
+    gauge: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.2 11.8a6.2 6.2 0 1 1 11.6 0"/><path d="M8 11.3L10.9 6.9"/></svg>',
   };
 
   const parse = () => {
@@ -934,4 +1005,5 @@ window.D3v = (() => {
 </script>
 <script src="modules/stacks.js"></script>
 <script src="modules/ports.js"></script>
+<script src="modules/perf.js"></script>
 </html>
