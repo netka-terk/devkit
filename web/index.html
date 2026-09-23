@@ -194,14 +194,25 @@
     font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
   }
   .p-head .btn { text-transform: none; letter-spacing: 0; }
-  .kv { display: grid; grid-template-columns: max-content 1fr auto; align-items: center; }
+  /* A row is three cells and the separator is drawn on each of them, so the
+     three must end at the same height. align-items:center made every cell only
+     as tall as its own content and centred it: the empty action cell is 18px
+     against the 37.5px of the text beside it, so its border sat ~10px high and
+     the line broke into a stub at the right edge. Default stretch keeps the
+     three the same height, and a cell whose text wraps to two lines no longer
+     leaves its neighbours' borders floating mid-row either. */
+  .kv { display: grid; grid-template-columns: max-content 1fr auto; }
   .kv > div { padding: 9px 14px; border-bottom: 1px solid var(--line); min-width: 0; }
   .kv > div:nth-last-child(-n+3) { border-bottom: 0; }
   .kv .k { font-family: var(--mono); font-size: 13px; font-weight: 500; }
   .kv .v { font-family: var(--mono); font-size: 12.5px; color: var(--fg-2); overflow-wrap: anywhere; }
   .kv .v.muted { color: var(--faint); }
   .kv .v.held { color: var(--warn); }
-  .kv .a { display: flex; justify-content: flex-end; }
+  /* The button centres itself in whatever height the row already has rather
+     than setting it; an action cell with nothing in it gives its width back to
+     the text instead of leaving a dead strip for the line to cross. */
+  .kv .a { display: flex; align-items: center; justify-content: flex-end; padding-top: 4px; padding-bottom: 4px; }
+  .kv .a:empty { padding: 0; }
   .kv .empty { grid-column: 1 / -1; color: var(--faint); font-size: 13px; padding: 14px; }
   .link {
     display: inline-flex; align-items: center; gap: 4px; color: var(--accent); text-decoration: none;

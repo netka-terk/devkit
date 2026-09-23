@@ -79,6 +79,15 @@ check('จำ port ที่เจอ → POST /api/adopt/alpha', has('POST /api
 // Board: one terminal panel per pane, fed through the mocked stream.
 const feed = (pane, text) => w.__es.onmessage({ data: JSON.stringify({ pane, text }) });
 check('board มีกล่อง Ports, Panes และ terminal 1 กล่องต่อ pane', d.querySelectorAll('#board .gp').length === 3 && !!d.querySelector('[data-gp="term:app"]'));
+// The ports/panes panels are one grid with the separator drawn per cell, so a
+// row that is not exactly k+v+a leaves the line broken across that row.
+const kv = d.querySelector('[data-gp="ports"] .kv');
+check('ตาราง ports แบ่งเป็นแถวละ 3 ช่อง (k, v, a) พอดี',
+  kv.children.length > 0 && kv.children.length % 3 === 0 &&
+  [...kv.children].every((el, i) => el.classList.contains(['k', 'v', 'a'][i % 3])),
+  [...kv.children].map((e) => e.className).join(' | '));
+check('ช่อง action ที่ไม่มีปุ่ม ว่างจริง (คอลัมน์จึงยุบได้ ไม่เหลือแถบว่าง)',
+  [...kv.querySelectorAll('.a')].every((el) => el.querySelector('button') || el.childNodes.length === 0));
 feed('app', 'INFO listening :3000\n');
 check('stream เข้า terminal ของ pane นั้น', d.querySelector('[data-pre="app"]')?.textContent.includes(':3000'));
 click(d.querySelector('[data-clear="app"]'));
