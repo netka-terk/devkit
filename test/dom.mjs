@@ -403,6 +403,7 @@ check('สลับธีม stamp data-theme', ['dark', 'light'].includes(d.doc
 // waits for a person is a permission request.
 calls.length = 0; w.location.hash = '#/chat'; await sleep(200);
 check('สลับไปเมนูแชท → mount พร้อมรายการ stack', d.querySelector('#view').classList.contains('m-chat') && d.querySelectorAll('.m-chat [data-select]').length === 2);
+check('ยังไม่ได้ถาม → ไม่มีแถบสถานะกวนใจ', d.querySelector('#ch-status').hidden);
 check('เปิด stream ของ stack ที่เลือก', has('SSE /api/chatstream/alpha'), calls.join(', '));
 check('หัวเรื่องบอกโฟลเดอร์ที่จะคุยด้วย (ย่อ ~ ให้)', d.querySelector('.ch-head .path')?.textContent.includes('~/a'), d.querySelector('.ch-head .path')?.textContent);
 check('มีตัวเลือกสิทธิ์ และไม่มีตัวเลือกปิดการตรวจสอบทั้งหมด', (() => {
@@ -425,6 +426,9 @@ d.querySelector('#ch-form').dispatchEvent(new w.Event('submit', { bubbles: true,
 await sleep(80);
 check('ส่งข้อความ → POST /api/chat/alpha', has('POST /api/chat/alpha') && w.__lastBody?.text === 'ทำอะไรได้บ้าง', JSON.stringify(w.__lastBody));
 check('ส่งแล้วช่องพิมพ์ว่าง และปุ่มส่งถูกปิดระหว่างรอ', d.querySelector('#ch-in').value === '' && d.querySelector('#ch-send').disabled);
+const mstate = () => d.querySelector('#ch-mascot .mascot')?.className.baseVal ?? d.querySelector('#ch-mascot .mascot')?.getAttribute('class') ?? '';
+const phaseText = () => d.querySelector('#ch-phase')?.textContent || '';
+check('ส่งแล้ว → แถบสถานะขึ้น พร้อมมาสคอตและนาฬิกา', !d.querySelector('#ch-status').hidden && phaseText().includes('รอ Claude') && mstate().includes('thinking') && /^\d+s$/.test(d.querySelector('#ch-elapsed').textContent), `${phaseText()} | ${mstate()} | ${d.querySelector('#ch-elapsed').textContent}`);
 feedChat({ type: 'nk', event: 'ask', text: 'ทำอะไรได้บ้าง' });
 feedChat({ type: 'system', subtype: 'init', model: 'claude-opus-5-5[1m]', cwd: '/home/u/a' });
 check('หัวเรื่องบอกรุ่นที่ได้จริง ไม่ใช่แค่ alias', d.querySelector('#ch-model')?.textContent === 'claude-opus-5-5[1m]', d.querySelector('#ch-model')?.textContent);
@@ -438,9 +442,11 @@ check('คำตอบขึ้นเป็นข้อความ พร้อ
   return !!m && !!m.querySelector('b') && !!m.querySelector('code') && m.querySelector('pre.code')?.textContent.includes('ls -la');
 })(), d.querySelector('.msg.claude')?.innerHTML.slice(0, 160));
 check('ส่วนที่คิดถูกพับไว้ ไม่เกะกะ', d.querySelector('.fold.think details')?.open === false);
+check('พอเริ่มเขียนคำตอบ → สถานะเปลี่ยนเป็นกำลังเขียน', phaseText().includes('กำลังเขียน') && mstate().includes('writing'), `${phaseText()} | ${mstate()}`);
 
 feedChat({ type: 'assistant', message: { content: [
   { type: 'tool_use', id: 'tu-1', name: 'Bash', input: { command: 'make test' } }] } });
+check('เรียกเครื่องมือ → สถานะบอกชื่อเครื่องมือ', phaseText() === 'กำลังใช้ Bash' && mstate().includes('tool'), `${phaseText()} | ${mstate()}`);
 check('การเรียกเครื่องมือขึ้นเป็นการ์ดพับ พร้อมสรุปว่าจะทำอะไร', (() => {
   const c = d.querySelector('[data-tool="tu-1"]');
   return !!c && c.querySelector('.tname').textContent === 'Bash' && c.querySelector('.tsum').textContent.includes('make test');
@@ -448,6 +454,7 @@ check('การเรียกเครื่องมือขึ้นเป�
 feedChat({ type: 'user', message: { content: [
   { type: 'tool_result', tool_use_id: 'tu-1', content: 'ok 12 tests' }] } });
 check('ผลลัพธ์ของเครื่องมือไปอยู่ในการ์ดเดียวกัน ไม่แยกฟอง', d.querySelector('[data-tool="tu-1"] .tres')?.textContent.includes('ok 12 tests') && d.querySelectorAll('.fold.tool').length === 1);
+check('เครื่องมือเสร็จ → กลับไปกำลังคิด', phaseText().includes('กำลังคิด') && mstate().includes('thinking'));
 
 // The permission card: nothing is approved unless somebody presses Allow.
 feedChat({ type: 'control_request', request_id: 'rq-1', request: {
@@ -455,11 +462,13 @@ feedChat({ type: 'control_request', request_id: 'rq-1', request: {
   input: { file_path: '/home/u/a/x.txt', content: 'hi' }, description: 'x.txt' } });
 const perm = d.querySelector('[data-perm="rq-1"]');
 check('คำขออนุญาตขึ้นเป็นการ์ด พร้อมปุ่มอนุญาต/ไม่อนุญาต', !!perm && !!perm.querySelector('[data-allow]') && !!perm.querySelector('[data-deny]'));
+check('รออนุญาต → แถบสถานะเป็นสีเตือน และมาสคอตเปลี่ยนท่า', d.querySelector('#ch-status').classList.contains('wait') && mstate().includes('wait') && phaseText().includes('รอคุณ'), `${phaseText()} | ${mstate()}`);
 check('การ์ดบอกว่าจะทำอะไรกับไฟล์ไหน', perm.textContent.includes('x.txt') && perm.querySelector('pre.code').textContent.includes('/home/u/a/x.txt'));
 calls.length = 0; click(perm.querySelector('[data-deny]')); await sleep(80);
 check('กดไม่อนุญาต → POST /api/chatperm พร้อม allow:false', has('POST /api/chatperm/alpha') && w.__lastBody?.allow === false && w.__lastBody?.id === 'rq-1', JSON.stringify(w.__lastBody));
 feedChat({ type: 'nk', event: 'answered', request_id: 'rq-1', allow: false });
 check('ตอบแล้วการ์ดปิดตัวเอง ไม่ให้กดซ้ำ', perm.classList.contains('done') && perm.classList.contains('no') && !perm.querySelector('[data-allow]'));
+check('ตอบคำขอแล้ว งานเดินต่อ ไม่ใช่จบรอบ', !d.querySelector('#ch-status').hidden && !d.querySelector('#ch-status').classList.contains('wait') && phaseText().includes('กำลังคิด'));
 
 feedChat({ type: 'control_request', request_id: 'rq-2', request: {
   subtype: 'can_use_tool', tool_name: 'Bash', display_name: 'Bash', input: { command: 'rm -rf build' } } });
@@ -539,6 +548,7 @@ feedChat({ type: 'assistant', message: { content: [{ type: 'text', text: '<img s
 check('ข้อความจาก Claude ถูก escape (ไม่กลายเป็น HTML)', w.__xss === undefined && !d.querySelector('.msg.claude img') && [...d.querySelectorAll('.msg.claude')].some((e) => e.textContent.includes('onerror')), String(w.__xss));
 
 feedChat({ type: 'result', subtype: 'success', duration_api_ms: 4200, total_cost_usd: 0.0123, usage: { output_tokens: 1500 } });
+check('จบรอบ → แถบสถานะหายไป', d.querySelector('#ch-status').hidden);
 check('จบรอบ → ปุ่มส่งกลับมาใช้ได้ และบอกเวลา/โทเคน/ราคา', !d.querySelector('#ch-send').disabled && d.querySelector('#ch-cost').textContent === '$0.0123' && [...d.querySelectorAll('.ch-log .note')].some((e) => e.textContent.includes('4.2s') && e.textContent.includes('1.5k')));
 feedChat({ type: 'nk', event: 'exited', code: 0 });
 check('session ปิด → บอกว่าพิมพ์ต่อได้', [...d.querySelectorAll('.ch-log .note')].some((e) => e.textContent.includes('พิมพ์ต่อ')));

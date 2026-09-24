@@ -86,6 +86,18 @@ Chat in detail:
   `~/.cache/nk/chatimg/<stack>/` and the stream carries only its id, so the
   backlog every viewer is handed on connect stays a few bytes rather than
   megabytes; the newest 200 per stack are kept.
+- **It says what it is doing.** A strip between the log and the box names the
+  stage the turn is at — sent, thinking, writing, using a named tool, or
+  waiting on you — with a clock, because "how long has this been going" is the
+  other half of the question. The stages come from the events themselves rather
+  than from one spinner standing in for all of them, and a tab that joins in
+  the middle of a turn picks up the right one.
+- **A mascot that is the indicator, not a sticker.** A small terminal with a
+  face: it blinks when idle, lights its antenna and looks about while thinking,
+  turns its mouth into a blinking cursor while writing, spins the bulb while a
+  tool runs, and goes amber and wide-eyed when it needs an answer from you. It
+  is drawn again only when the state changes, so the animation does not restart
+  with every tick of the clock, and `prefers-reduced-motion` stills all of it.
 - **What Claude did is there when that is the question.** Tool calls and
   thinking are folded away with a one-line summary and open on click; a tool's
   output lands inside its own card rather than as another bubble. Each turn ends

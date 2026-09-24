@@ -13,6 +13,7 @@
   let es = null, seq = 0, state = null, streamFor = null;
   const tools = new Map();          // tool_use_id -> its card, so a result lands in it
   let pending = [];                 // images waiting to go with the next message
+  let phase = null, phaseSince = 0, tick = null;
 
   const attrEsc = (v) => String(v).replace(/["\\]/g, '\\$&');
   const saved = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -48,6 +49,12 @@
       </div>
     </div>
     <div class="ch-log" id="ch-log" tabindex="0"></div>
+    <div class="ch-status" id="ch-status" hidden>
+      <span id="ch-mascot"></span>
+      <span class="st-text" id="ch-phase"></span>
+      <span class="st-sum" id="ch-what"></span>
+      <span class="st-time num" id="ch-elapsed"></span>
+    </div>
     <form class="ch-compose" id="ch-form">
       <div class="ch-shots" id="ch-shots" hidden></div>
       <div class="ch-row">
@@ -182,7 +189,7 @@
       return add(el('msg me', (ev.text ? md(ev.text) : '') + (shots ? `<div class="shots">${shots}</div>` : '')));
     }
     if (ev.event === 'started') return add(el('note', esc(t('ch.started', { dir: home(ev.cwd), mode: ev.mode }))));
-    if (ev.event === 'exited') { setBusy(false); return add(el('note', esc(t('ch.exited')))); }
+    if (ev.event === 'exited') { setBusy(false); setPhase(null); return add(el('note', esc(t('ch.exited')))); }
     if (ev.event === 'answered') {
       const card = root.querySelector(`[data-perm="${attrEsc(ev.request_id)}"]`);
       if (card) {
@@ -190,6 +197,8 @@
         card.querySelector('.perm-act').innerHTML =
           `<span class="perm-said">${esc(t(ev.allow ? 'ch.allowed' : 'ch.denied'))}</span>`;
       }
+      // Answering does not end the turn — work carries on from here.
+      if (phase === 'wait') setPhase('thinking');
     }
   }
 
@@ -200,10 +209,12 @@
 
   function onAssistant(ev) {
     for (const c of ev.message?.content || []) {
-      if (c.type === 'text' && c.text.trim()) add(el('msg claude', md(c.text)));
+      if (c.type === 'text' && c.text.trim()) { setPhase('writing'); add(el('msg claude', md(c.text))); }
       else if (c.type === 'thinking' && c.thinking?.trim()) {
+        setPhase('thinking');
         add(el('fold think', `<details><summary>${esc(t('ch.thinking'))}</summary><div>${esc(c.thinking)}</div></details>`));
       } else if (c.type === 'tool_use') {
+        setPhase('tool', c.name);
         const card = el('fold tool', `<details><summary><span class="tname">${esc(c.name)}</span>
           <span class="tsum">${esc(summary(c.name, c.input))}</span></summary>
           <pre class="code">${esc(JSON.stringify(c.input, null, 2))}</pre>
@@ -218,6 +229,7 @@
   function onToolResult(ev) {
     for (const c of ev.message?.content || []) {
       if (c.type !== 'tool_result') continue;
+      setPhase('thinking');
       const card = tools.get(c.tool_use_id);
       const body = typeof c.content === 'string' ? c.content
         : Array.isArray(c.content) ? c.content.map((x) => x.text || '').join('\n')
@@ -245,11 +257,13 @@
         <button class="btn primary" data-allow="${esc(ev.request_id)}">${t('ch.allow')}</button>
       </div>`);
     card.dataset.perm = ev.request_id;
+    setPhase('wait', summary(r.tool_name, r.input));
     add(card);
   }
 
   function onResult(ev) {
     setBusy(false);
+    setPhase(null);
     const u = ev.usage || {};
     const parts = [
       ev.subtype !== 'success' ? t('ch.failed', { why: ev.subtype || '' }) : '',
@@ -261,6 +275,40 @@
       const c = $('#ch-cost'); if (c) c.textContent = money(ev.total_cost_usd);
     }
     add(el('note' + (ev.subtype !== 'success' ? ' bad' : ''), esc(parts.join(' · '))));
+  }
+
+  // ------------------------------------------------------------ status --
+  // The events already say what stage a turn is at, so the strip says it too
+  // rather than showing one spinner for everything between "sent" and
+  // "waiting on you to decide".
+  function setPhase(kind, what = '') {
+    phase = kind;
+    const bar = $('#ch-status'); if (!bar) return;
+    if (!kind) {
+      bar.hidden = true;
+      delete bar.dataset.kind;
+      clearInterval(tick); tick = null;
+      return;
+    }
+    if (bar.hidden) { bar.hidden = false; phaseSince = Date.now(); }
+    bar.classList.toggle('wait', kind === 'wait');
+    // Redrawn only when the state changes, so the mascot's animation does not
+    // start over every second along with the clock.
+    if (bar.dataset.kind !== kind) {
+      bar.dataset.kind = kind;
+      $('#ch-mascot').innerHTML = D3v.mascot(kind === 'sent' ? 'thinking' : kind);
+    }
+    $('#ch-phase').textContent = kind === 'tool' ? t('ch.busy.tool', { tool: what }) : t(`ch.busy.${kind}`);
+    $('#ch-what').textContent = kind === 'tool' ? '' : what;
+    if (!tick) {
+      const paint = () => {
+        const e = $('#ch-elapsed'); if (!e) return;
+        const n = Math.round((Date.now() - phaseSince) / 1000);
+        e.textContent = n >= 60 ? `${Math.floor(n / 60)}:${String(n % 60).padStart(2, '0')}` : `${n}s`;
+      };
+      paint();
+      tick = setInterval(paint, 1000);
+    }
   }
 
   // -------------------------------------------------------------- state --
@@ -282,6 +330,7 @@
     try {
       await api(`/api/chat/${encodeURIComponent(selected)}`, 'POST', { text, images });
       setBusy(true);
+      setPhase('sent');
     } catch (e) { toast(t('ch.send.fail'), { detail: e.message, kind: 'bad' }); }
   }
 
@@ -314,9 +363,10 @@
     const main = $('#main');
     const s = stacks.find((x) => x.name === selected);
     if (!stacks.length) return void (main.innerHTML = `<div class="welcome"><p>${t('st.empty.title')}</p></div>`);
-    if (!s) return void (main.innerHTML = `<div class="welcome"><p>${t('ch.pick')}</p></div>`);
+    if (!s) return void (main.innerHTML = `<div class="welcome">${D3v.mascot('idle')}<p>${t('ch.pick')}</p></div>`);
     if (main.dataset.for === s.name) return;
     main.dataset.for = s.name;
+    clearInterval(tick); tick = null; phase = null;
     main.innerHTML = PANE(s);
     wirePane();
     attach(s.name);
@@ -337,6 +387,8 @@
       $('#ch-cost').textContent = state.cost ? money(state.cost) : '';
       setBusy(!!state.busy);
       if (!state.claude) add(el('note bad', esc(t('ch.noclaude'))));
+      // A tab that joins in the middle of a turn should not look idle.
+      if (state.busy) setPhase(state.pending?.length ? 'wait' : 'thinking');
     } catch (e) { toast(t('ch.state.fail'), { detail: e.message, kind: 'bad' }); }
   }
 
@@ -379,7 +431,7 @@
       if (e.relatedTarget === null) root.classList.remove('dropping');
     });
     $('#ch-stop').onclick = async () => {
-      try { await api(`/api/chatstop/${encodeURIComponent(selected)}`, 'POST'); setBusy(false); }
+      try { await api(`/api/chatstop/${encodeURIComponent(selected)}`, 'POST'); setBusy(false); setPhase(null); }
       catch (e) { toast(t('ch.stop.fail'), { detail: e.message, kind: 'bad' }); }
     };
     // Both are fixed when the process starts, so either restarts the session.
@@ -459,6 +511,7 @@
     refresh,
     unmount() {
       if (es) { es.close(); es = null; }
+      clearInterval(tick); tick = null; phase = null;
       streamFor = null; tools.clear(); state = null; pending = [];
       root = null; $ = null;
     },
