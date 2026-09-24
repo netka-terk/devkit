@@ -31,6 +31,29 @@ KEEP = 400                      # events kept per session for a late viewer
 # every check does not belong behind no login.
 MODES = ("manual", "acceptEdits", "auto", "plan")
 
+# Model aliases, which track the newest model in each family rather than pinning
+# a name that goes stale. "" means: pass no --model and take whatever the
+# machine is configured for, which is not the same thing as "opus" — on this
+# machine the configured default carries the 1M context window and the bare
+# alias does not.
+MODELS = ("", "opus", "sonnet", "haiku", "fable")
+
+
+def load_state(name):
+    """What is remembered about a stack's conversation between runs."""
+    try:
+        d = json.loads((STATE / f"{name}.json").read_text())
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state(name, **fields):
+    d = load_state(name)
+    d.update(fields)
+    STATE.mkdir(parents=True, exist_ok=True)
+    (STATE / f"{name}.json").write_text(json.dumps(d))
+
 
 def session_id(name, create=True):
     """(uuid, started) for a stack's conversation, minted on first ask.
@@ -38,21 +61,13 @@ def session_id(name, create=True):
     The id is ours rather than claude's so it is stable from the first turn:
     `claude --resume <id>` in a terminal opens exactly what the page shows.
     """
-    f = STATE / f"{name}.json"
-    try:
-        d = json.loads(f.read_text())
-        return d.get("session"), bool(d.get("started"))
-    except (OSError, ValueError):
-        if not create:
-            return None, False
+    d = load_state(name)
+    sid = d.get("session")
+    if not sid and create:
         sid = str(uuid.uuid4())
-        save_session_id(name, sid, False)
+        save_state(name, session=sid, started=False)
         return sid, False
-
-
-def save_session_id(name, sid, started):
-    STATE.mkdir(parents=True, exist_ok=True)
-    (STATE / f"{name}.json").write_text(json.dumps({"session": sid, "started": started}))
+    return sid, bool(d.get("started"))
 
 
 def find_claude():
@@ -150,7 +165,7 @@ class Session:
             self.error = f"เริ่ม claude ไม่สำเร็จ: {e}"
             return False, self.error
 
-        save_session_id(sid and self.name, sid, True)
+        save_state(self.name, session=sid, started=True)
         self.error = None
         threading.Thread(target=self._read_stdout, daemon=True).start()
         threading.Thread(target=self._read_stderr, daemon=True).start()
@@ -231,6 +246,18 @@ class Session:
                     "allow": bool(allow)})
         return True, ""
 
+    def configure(self, mode=None, model=None):
+        """Set the permission mode or the model, and remember both.
+
+        Both are fixed when the process starts, so the caller restarts the
+        session; the conversation survives because its id does.
+        """
+        if mode in MODES:
+            self.mode = mode
+        if model is not None and model in MODELS:
+            self.model = model
+        save_state(self.name, mode=self.mode, model=self.model or "")
+
     def stop(self):
         p = self.proc
         if p and p.poll() is None:
@@ -251,7 +278,7 @@ class Session:
         return {
             "stack": self.name, "cwd": self.cwd, "mode": self.mode,
             "running": self.running(), "busy": self.busy,
-            "session": self.session_id, "cost": self.cost,
+            "session": self.session_id, "cost": self.cost, "model": self.model or "",
             "seq": self.seq, "error": self.error,
             "pending": [{"id": k, **v} for k, v in self.pending.items()],
         }
@@ -283,7 +310,11 @@ def session(name, cwd=None, mode=None, model=None):
         if s is None:
             if not cwd:
                 return None
-            s = _sessions[name] = Session(name, cwd, mode or "manual", model)
+            # What was chosen last time, so a restart does not silently move
+            # the conversation to a different model.
+            kept = load_state(name)
+            s = _sessions[name] = Session(name, cwd, mode or kept.get("mode") or "manual",
+                                          model or kept.get("model") or None)
         if cwd:
             s.cwd = cwd
         if mode and mode in MODES and not s.running():
@@ -309,9 +340,12 @@ if __name__ == "__main__":
         sid, started = session_id(argv[1])
         print(sid, 1 if started else 0)
         sys.exit(0)
+    if argv[:1] == ["--model"] and len(argv) > 1:
+        print(load_state(argv[1]).get("model") or "")
+        sys.exit(0)
     if argv[:1] == ["--started"] and len(argv) > 1:
         sid, _ = session_id(argv[1])
         save_session_id(argv[1], sid, True)
         sys.exit(0)
-    print("ใช้: chat.py --which | --id <stack> | --started <stack>", file=sys.stderr)
+    print("ใช้: chat.py --which | --id <stack> | --model <stack> | --started <stack>", file=sys.stderr)
     sys.exit(2)

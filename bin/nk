@@ -496,8 +496,12 @@ cmd_chat() {
   read -r sid started < <(python3 "$NK_ROOT/lib/chat.py" --id "$NK_NAME")
   [ -n "$sid" ] || die "สร้าง session ไม่สำเร็จ"
   python3 "$NK_ROOT/lib/chat.py" --started "$NK_NAME"
-  local sess=(--session-id "$sid")
+  local sess=(--session-id "$sid") model
   [ "$started" = 1 ] && sess=(--resume "$sid")
+  # The model the console last chose for this stack, so both open the same
+  # conversation on the same model.
+  model=$(python3 "$NK_ROOT/lib/chat.py" --model "$NK_NAME")
+  [ -n "$model" ] && sess+=(--model "$model")
   cd "$NK_DIR" || die "เข้า $NK_DIR ไม่ได้"
   [ $# -eq 0 ] && exec "$bin" "${sess[@]}"
   exec "$bin" -p "${sess[@]}" "$*"

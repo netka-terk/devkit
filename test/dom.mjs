@@ -51,9 +51,10 @@ const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true
       calls.push(`${opts.method || 'GET'} ${url}`);
       if (opts.body) w.__lastBody = JSON.parse(opts.body);
       const body = url.startsWith('/api/chat/') && (opts.method || 'GET') === 'GET'
-          ? { stack: 'alpha', cwd: '/home/u/a', mode: 'manual', running: false, busy: false,
+          ? { stack: 'alpha', cwd: '/home/u/a', mode: 'manual', model: '', running: false, busy: false,
               session: 'sid-1', cost: 0, seq: 0, error: null, pending: [],
-              claude: true, modes: ['manual', 'acceptEdits', 'auto', 'plan'] }
+              claude: true, modes: ['manual', 'acceptEdits', 'auto', 'plan'],
+              models: ['', 'opus', 'sonnet', 'haiku', 'fable'] }
         : url === '/api/stats' ? statsSample()
         : url === '/api/stacks' ? stacks
         : url.startsWith('/api/stack/') ? detail(decodeURIComponent(url.split('/').pop()))
@@ -408,6 +409,11 @@ check('มีตัวเลือกสิทธิ์ และไม่มี
   return o.length === 4 && o.includes('manual') && !o.includes('bypassPermissions');
 })(), [...d.querySelectorAll('#ch-mode option')].map((e) => e.value).join(','));
 
+check('เลือกรุ่นได้ และตัวแรกคือค่าเริ่มต้นของเครื่อง', (() => {
+  const o = [...d.querySelectorAll('#ch-model-sel option')];
+  return o.length === 5 && o[0].value === '' && o[0].textContent.includes('ตามค่าเครื่อง') && o[1].textContent === 'Opus';
+})(), [...d.querySelectorAll('#ch-model-sel option')].map((e) => `${e.value}=${e.textContent}`).join(','));
+
 const chatEs = w.__sse.find((e) => e.url.startsWith('/api/chatstream/alpha'));
 let chatSeq = 0;
 const feedChat = (ev) => chatEs.onmessage({ data: JSON.stringify({ seq: ++chatSeq, ev }) });
@@ -419,6 +425,8 @@ await sleep(80);
 check('ส่งข้อความ → POST /api/chat/alpha', has('POST /api/chat/alpha') && w.__lastBody?.text === 'ทำอะไรได้บ้าง', JSON.stringify(w.__lastBody));
 check('ส่งแล้วช่องพิมพ์ว่าง และปุ่มส่งถูกปิดระหว่างรอ', d.querySelector('#ch-in').value === '' && d.querySelector('#ch-send').disabled);
 feedChat({ type: 'nk', event: 'ask', text: 'ทำอะไรได้บ้าง' });
+feedChat({ type: 'system', subtype: 'init', model: 'claude-opus-5-5[1m]', cwd: '/home/u/a' });
+check('หัวเรื่องบอกรุ่นที่ได้จริง ไม่ใช่แค่ alias', d.querySelector('#ch-model')?.textContent === 'claude-opus-5-5[1m]', d.querySelector('#ch-model')?.textContent);
 check('ข้อความของเราขึ้นในบทสนทนา', d.querySelector('.msg.me')?.textContent.includes('ทำอะไรได้บ้าง'));
 
 feedChat({ type: 'assistant', message: { content: [
@@ -456,6 +464,19 @@ feedChat({ type: 'control_request', request_id: 'rq-2', request: {
   subtype: 'can_use_tool', tool_name: 'Bash', display_name: 'Bash', input: { command: 'rm -rf build' } } });
 calls.length = 0; click(d.querySelector('[data-perm="rq-2"] [data-allow]')); await sleep(80);
 check('กดอนุญาต → POST พร้อม allow:true', w.__lastBody?.allow === true && w.__lastBody?.id === 'rq-2', JSON.stringify(w.__lastBody));
+
+// Changing the model or the permissions restarts the session; the conversation
+// is kept by its id, which is the only reason that is safe.
+calls.length = 0;
+d.querySelector('#ch-model-sel').value = 'sonnet';
+d.querySelector('#ch-model-sel').dispatchEvent(new w.Event('change', { bubbles: true }));
+await sleep(80);
+check('เปลี่ยนรุ่น → POST /api/chatopts พร้อม model', has('POST /api/chatopts/alpha') && w.__lastBody?.model === 'sonnet', JSON.stringify(w.__lastBody));
+calls.length = 0;
+d.querySelector('#ch-mode').value = 'acceptEdits';
+d.querySelector('#ch-mode').dispatchEvent(new w.Event('change', { bubbles: true }));
+await sleep(80);
+check('เปลี่ยนสิทธิ์ → POST เดียวกัน พร้อม mode', has('POST /api/chatopts/alpha') && w.__lastBody?.mode === 'acceptEdits', JSON.stringify(w.__lastBody));
 
 // Assistant text is data, never markup.
 feedChat({ type: 'assistant', message: { content: [{ type: 'text', text: '<img src=x onerror="window.__xss=1">' }] } });

@@ -33,10 +33,13 @@
     <div class="ch-head">
       <div class="d-title">
         <h1>${esc(s.name)}</h1>
-        <div class="path">${esc(home(s.dir))}</div>
+        <div class="path">${esc(home(s.dir))} <span class="ch-live" id="ch-model"></span></div>
       </div>
       <div class="ch-tools">
-        <label class="ch-mode">${t('ch.mode')}
+        <label class="ch-sel">${t('ch.model')}
+          <select id="ch-model-sel" class="in"></select>
+        </label>
+        <label class="ch-sel">${t('ch.mode')}
           <select id="ch-mode" class="in"></select>
         </label>
         <span class="ch-cost num" id="ch-cost"></span>
@@ -262,9 +265,13 @@
     try {
       state = await api(`/api/chat/${encodeURIComponent(name)}`);
       if (name !== selected) return;
-      const sel = $('#ch-mode');
-      sel.innerHTML = (state.modes || []).map((m) =>
+      $('#ch-mode').innerHTML = (state.modes || []).map((m) =>
         `<option value="${esc(m)}" ${m === state.mode ? 'selected' : ''}>${esc(t(`ch.mode.${m}`))}</option>`).join('');
+      // An alias is a product name, so it is shown as one; the empty option is
+      // "whatever this machine is set to", which is not the same as "opus".
+      $('#ch-model-sel').innerHTML = (state.models || []).map((m) =>
+        `<option value="${esc(m)}" ${m === (state.model || '') ? 'selected' : ''}>${
+          m ? esc(m[0].toUpperCase() + m.slice(1)) : esc(t('ch.model.default'))}</option>`).join('');
       $('#ch-cost').textContent = state.cost ? money(state.cost) : '';
       setBusy(!!state.busy);
       if (!state.claude) add(el('note bad', esc(t('ch.noclaude'))));
@@ -291,12 +298,19 @@
       try { await api(`/api/chatstop/${encodeURIComponent(selected)}`, 'POST'); setBusy(false); }
       catch (e) { toast(t('ch.stop.fail'), { detail: e.message, kind: 'bad' }); }
     };
-    $('#ch-mode').onchange = async (ev) => {
-      const mode = ev.target.value;
+    // Both are fixed when the process starts, so either restarts the session.
+    // The conversation is kept by its id, which is why that is safe to do.
+    const setOpts = async (body, okMsg, failKey) => {
       try {
-        await api(`/api/chatmode/${encodeURIComponent(selected)}`, 'POST', { mode });
-        toast(t('ch.mode.set', { mode: t(`ch.mode.${mode}`) }), { kind: 'good' });
-      } catch (e) { toast(t('ch.mode.fail'), { detail: e.message, kind: 'bad' }); }
+        await api(`/api/chatopts/${encodeURIComponent(selected)}`, 'POST', body);
+        toast(okMsg, { kind: 'good' });
+      } catch (e) { toast(t(failKey), { detail: e.message, kind: 'bad' }); }
+    };
+    $('#ch-mode').onchange = (ev) =>
+      setOpts({ mode: ev.target.value }, t('ch.mode.set', { mode: t(`ch.mode.${ev.target.value}`) }), 'ch.mode.fail');
+    $('#ch-model-sel').onchange = (ev) => {
+      const m = ev.target.value;
+      setOpts({ model: m }, t('ch.model.set', { model: m || t('ch.model.default') }), 'ch.model.fail');
     };
     box.focus();
   }

@@ -71,6 +71,14 @@ Chat in detail:
   every time" and the selector offers *edits without asking*, *decide
   automatically* and *plan only* — but not `bypassPermissions`, because a button
   that turns off every check does not belong on a page with no login.
+- **Model and permissions are both a dropdown.** The model list is aliases —
+  Opus, Sonnet, Haiku, Fable — which follow the newest model in each family
+  instead of pinning a name that goes stale, plus "machine default", which is
+  not the same thing as picking Opus: the configured default here carries the
+  1M-token context window and the bare alias does not. Whatever the session
+  resolved to is printed next to the folder, because an alias does not tell you.
+  Changing either restarts the session and keeps the conversation, and the
+  choice is remembered, so `nk chat <stack>` opens on the same model too.
 - **What Claude did is there when that is the question.** Tool calls and
   thinking are folded away with a one-line summary and open on click; a tool's
   output lands inside its own card rather than as another bubble. Each turn ends

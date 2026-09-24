@@ -225,7 +225,8 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/chat/"):
             s = self.chat_session(path, "/api/chat/")
             return self.send_json(200, {**s.state(), "claude": bool(chat.find_claude()),
-                                        "modes": list(chat.MODES)}) if s else None
+                                        "modes": list(chat.MODES),
+                                        "models": list(chat.MODELS)}) if s else None
 
         if path.startswith("/api/chatstream/"):
             s = self.chat_session(path, "/api/chatstream/")
@@ -423,22 +424,25 @@ class Handler(BaseHTTPRequestHandler):
             s.stop()
             return self.send_json(200, {"ok": True})
 
-        if path.startswith("/api/chatmode/"):
-            s = self.chat_session(path, "/api/chatmode/")
+        if path.startswith("/api/chatopts/"):
+            s = self.chat_session(path, "/api/chatopts/")
             if not s:
                 return
             body = self.read_json()
             if body is None:
                 return
-            mode = str(body.get("mode", ""))
-            if mode not in chat.MODES:
+            mode, model = body.get("mode"), body.get("model")
+            if mode is not None and mode not in chat.MODES:
                 return self.send_json(400, {"error": "โหมดไม่ถูกต้อง"})
-            # The mode is fixed when the process starts, so changing it restarts
-            # the session; the conversation itself is kept by its id.
+            if model is not None and model not in chat.MODELS:
+                return self.send_json(400, {"error": "รุ่นไม่ถูกต้อง"})
+            # Both are fixed when the process starts, so changing either
+            # restarts the session; the conversation is kept by its id.
             s.stop()
-            s.mode = mode
+            s.configure(mode, model)
             ok, msg = s.start()
-            return self.send_json(200 if ok else 400, {"ok": True, "mode": mode} if ok else {"error": msg})
+            return self.send_json(200 if ok else 400,
+                                  {"ok": True, "mode": s.mode, "model": s.model or ""} if ok else {"error": msg})
 
         if path == "/api/stack":
             try:
