@@ -5,8 +5,11 @@ Binds to loopback only: the endpoints start and stop processes, so this must
 never be reachable from the network. All state comes from the `nk` CLI itself,
 which stays the single source of truth.
 """
+import atexit
 import json
 import os
+import queue
+import signal
 import re
 import shutil
 import subprocess
@@ -15,6 +18,9 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import chat  # noqa: E402  (same directory, not a package)
 
 ROOT = Path(__file__).resolve().parent.parent
 NK = str(ROOT / "bin" / "nk")
@@ -133,6 +139,29 @@ class Handler(BaseHTTPRequestHandler):
     def send_json(self, code, obj):
         self.send(code, json.dumps(obj))
 
+    def read_json(self):
+        """The request body as an object, or None (a reply is already sent)."""
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            return json.loads(self.rfile.read(length) or b"{}")
+        except (ValueError, json.JSONDecodeError):
+            self.send_json(400, {"error": "body ไม่ใช่ JSON"})
+            return None
+
+    def chat_session(self, path, prefix, make=True):
+        """The conversation for the stack named in the path, if there is one."""
+        name = self.stack_from(path, prefix)
+        if not name:
+            return None
+        spec = read_stack(name)
+        if spec.get("error") or not spec.get("dir"):
+            self.send_json(404, {"error": spec.get("error") or f"ไม่รู้จัก stack {name}"})
+            return None
+        s = chat.session(name, spec["dir"]) if make else chat.session(name)
+        if s is None:
+            self.send_json(404, {"error": "ยังไม่มีห้องแชทของ stack นี้"})
+        return s
+
     def stack_from(self, path, prefix):
         name = path[len(prefix):]
         if not STACK_RE.match(name):
@@ -192,6 +221,22 @@ class Handler(BaseHTTPRequestHandler):
             if not name:
                 return
             return self.send_json(200, read_stack(name))
+
+        if path.startswith("/api/chat/"):
+            s = self.chat_session(path, "/api/chat/")
+            return self.send_json(200, {**s.state(), "claude": bool(chat.find_claude()),
+                                        "modes": list(chat.MODES)}) if s else None
+
+        if path.startswith("/api/chatstream/"):
+            s = self.chat_session(path, "/api/chatstream/")
+            if s:
+                q = parse_qs(urlparse(self.path).query)
+                try:
+                    since = int(q.get("since", ["0"])[0])
+                except ValueError:
+                    since = 0
+                self.chat_stream(s, since)
+            return
 
         if path == "/api/browse":
             q = parse_qs(urlparse(self.path).query)
@@ -277,6 +322,37 @@ class Handler(BaseHTTPRequestHandler):
             for fh in handles.values():
                 fh.close()
 
+    # ----------------------------------------------------------- chat SSE --
+    def chat_stream(self, session, since):
+        """Every event of one conversation, from `since` onwards and then live."""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+        q = session.watch()
+        try:
+            # The backlog first, so a tab that joins late sees the conversation
+            # rather than only what happens after it arrived.
+            for seq, obj in session.backlog(since):
+                self.wfile.write(b"data: " + json.dumps({"seq": seq, "ev": obj}).encode() + b"\n\n")
+            self.wfile.flush()
+            deadline = time.time() + 3600
+            while time.time() < deadline:
+                try:
+                    seq, obj = q.get(timeout=5)
+                    self.wfile.write(b"data: " + json.dumps({"seq": seq, "ev": obj}).encode() + b"\n\n")
+                except queue.Empty:
+                    # A comment every few seconds, so a tab that went away is
+                    # noticed instead of holding a thread for an hour.
+                    self.wfile.write(b": ping\n\n")
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        finally:
+            session.unwatch(q)
+
     # ---------------------------------------------------------------- POST --
     def do_POST(self):
         path = self.path.split("?", 1)[0]
@@ -314,6 +390,55 @@ class Handler(BaseHTTPRequestHandler):
             rc, out, err = run_nk(args, timeout=20)
             return self.send_json(200 if rc == 0 else 400,
                                   {"ok": True} if rc == 0 else {"error": (err or out).strip()})
+
+        if path.startswith("/api/chat/"):
+            s = self.chat_session(path, "/api/chat/")
+            if not s:
+                return
+            body = self.read_json()
+            if body is None:
+                return
+            text = str(body.get("text", "")).strip()
+            if not text or len(text) > 100000:
+                return self.send_json(400, {"error": "ข้อความว่างหรือยาวเกินไป"})
+            ok, msg = s.ask(text)
+            return self.send_json(200 if ok else 400, {"ok": True} if ok else {"error": msg})
+
+        if path.startswith("/api/chatperm/"):
+            s = self.chat_session(path, "/api/chatperm/", make=False)
+            if not s:
+                return
+            body = self.read_json()
+            if body is None:
+                return
+            # Allow has to be said in so many words; anything else is a deny.
+            ok, msg = s.answer(str(body.get("id", "")), body.get("allow") is True,
+                               str(body.get("note", ""))[:200])
+            return self.send_json(200 if ok else 400, {"ok": True} if ok else {"error": msg})
+
+        if path.startswith("/api/chatstop/"):
+            s = self.chat_session(path, "/api/chatstop/", make=False)
+            if not s:
+                return
+            s.stop()
+            return self.send_json(200, {"ok": True})
+
+        if path.startswith("/api/chatmode/"):
+            s = self.chat_session(path, "/api/chatmode/")
+            if not s:
+                return
+            body = self.read_json()
+            if body is None:
+                return
+            mode = str(body.get("mode", ""))
+            if mode not in chat.MODES:
+                return self.send_json(400, {"error": "โหมดไม่ถูกต้อง"})
+            # The mode is fixed when the process starts, so changing it restarts
+            # the session; the conversation itself is kept by its id.
+            s.stop()
+            s.mode = mode
+            ok, msg = s.start()
+            return self.send_json(200 if ok else 400, {"ok": True, "mode": mode} if ok else {"error": msg})
 
         if path == "/api/stack":
             try:
@@ -441,17 +566,28 @@ def browse(path):
     }
 
 
+def shutdown_chats(*_):
+    """The chat sessions are our child processes; they go when we do."""
+    for s in chat.known():
+        s.stop()
+
+
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 7777
     host = "127.0.0.1"
     if not shutil.which("tmux"):
         print("! ไม่พบ tmux — nk up จะใช้ไม่ได้", file=sys.stderr)
+    # Ctrl-C is one way this ends; `nk down`, a reboot or a stray kill is
+    # another, and a claude left holding a terminal is nobody's idea of tidy.
+    atexit.register(shutdown_chats)
+    signal.signal(signal.SIGTERM, lambda *a: sys.exit(0))
     srv = ThreadingHTTPServer((host, port), Handler)
     print(f"D3v by terk → http://{host}:{port}  (ctrl-c เพื่อหยุด)")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
         print("\nหยุดแล้ว")
+        shutdown_chats()
         srv.server_close()
 
 

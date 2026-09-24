@@ -17,6 +17,8 @@ removes the `make run` → error → `lsof -i :PORT` → `kill -9` → `make run
     nk kill 3000           # free a port without touching a stack
     nk ports grafana       # what the running stack actually listens on
     nk stats               # CPU/RAM of the machine, and of each running stack
+    nk chat corr           # the console's conversation for a stack, in a terminal
+    nk chat corr "why is the consumer lagging?"
 
     nk init                # scaffold .nk/<name>.sh for the current project
     nk list                # stacks visible from here, and where each came from
@@ -49,6 +51,36 @@ Menus today:
 - **Ports** — every port the stacks declare or were seen using, who holds it
   now, conflicts between stacks, and a clear button for anything held outside nk.
 - **Performance** — what the machine is doing and which stack is doing it.
+- **Chat** — a Claude Code conversation per stack folder, without opening an editor.
+
+Chat in detail:
+
+- **One conversation per stack folder.** Pick a stack and talk about it; the
+  `claude` process runs in that stack's `NK_DIR`, so the files it reads and
+  writes are that project's. A conversation is remembered: come back tomorrow
+  and it is still there.
+- **The same conversation from the terminal.** The session id is nk's, not
+  claude's — one UUID per stack under `~/.config/nk/chat/` — so `nk chat <stack>`
+  opens in a terminal exactly what the page is showing, and `nk chat <stack>
+  "question"` asks and prints the answer. Neither is a copy of the other.
+- **Approval is a button a person presses.** The process runs with
+  `--permission-prompt-tool stdio`, so every tool that needs permission arrives
+  as a card saying which tool, on which file, with the full input one click
+  away, and Allow / Deny underneath. Nothing is approved unless somebody says
+  so; deny is what happens to anything else. The permission mode starts at "ask
+  every time" and the selector offers *edits without asking*, *decide
+  automatically* and *plan only* — but not `bypassPermissions`, because a button
+  that turns off every check does not belong on a page with no login.
+- **What Claude did is there when that is the question.** Tool calls and
+  thinking are folded away with a one-line summary and open on click; a tool's
+  output lands inside its own card rather than as another bubble. Each turn ends
+  with how long it took, the tokens, and what the conversation has cost.
+- **It reads the stream, it does not own state.** The page is a rendering of the
+  event stream, so a second tab shows the same conversation, and a reload picks
+  it up where it was.
+
+It needs the `claude` binary. It looks on `PATH`, then `~/.local/bin`, then the
+copy the VS Code extension ships; `NK_CLAUDE_BIN` overrides all of it.
 
 Performance in detail:
 

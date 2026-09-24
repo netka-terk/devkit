@@ -7,7 +7,7 @@ import { JSDOM } from 'jsdom';
 const html = fs.readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
 // jsdom ignores <script src> without a resource loader, so the menu modules are
 // injected by hand after the shell has run — same order as the page.
-const modules = ['stacks', 'ports', 'perf'].map((m) => fs.readFileSync(new URL(`../web/modules/${m}.js`, import.meta.url), 'utf8'));
+const modules = ['stacks', 'ports', 'perf', 'chat'].map((m) => fs.readFileSync(new URL(`../web/modules/${m}.js`, import.meta.url), 'utf8'));
 const stacks = [
   { name: 'alpha', origin: 'user', dir: '/home/u/a', url: 'http://x', note: 'n',
     running: true, hasToken: false, ports: [{ port: 3000, holder: 'node', pid: 42 }],
@@ -50,14 +50,22 @@ const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true
     w.fetch = async (url, opts = {}) => {
       calls.push(`${opts.method || 'GET'} ${url}`);
       if (opts.body) w.__lastBody = JSON.parse(opts.body);
-      const body = url === '/api/stats' ? statsSample()
+      const body = url.startsWith('/api/chat/') && (opts.method || 'GET') === 'GET'
+          ? { stack: 'alpha', cwd: '/home/u/a', mode: 'manual', running: false, busy: false,
+              session: 'sid-1', cost: 0, seq: 0, error: null, pending: [],
+              claude: true, modes: ['manual', 'acceptEdits', 'auto', 'plan'] }
+        : url === '/api/stats' ? statsSample()
         : url === '/api/stacks' ? stacks
         : url.startsWith('/api/stack/') ? detail(decodeURIComponent(url.split('/').pop()))
         : url.startsWith('/api/browse') ? { path: '/home/u', parent: '/home', dirs: ['a', 'b'] }
         : { ok: true, output: 'done' };
       return { ok: true, json: async () => body };
     };
-    w.EventSource = class { constructor(u) { calls.push(`SSE ${u}`); this.readyState = 1; w.__es = this; } close() {} };
+    w.__sse = [];
+    w.EventSource = class {
+      constructor(u) { calls.push(`SSE ${u}`); this.readyState = 1; this.url = u; w.__es = this; w.__sse.push(this); }
+      close() { this.closed = true; }
+    };
     w.confirm = () => true;
     w.matchMedia = () => ({ matches: false });
     w.localStorage.setItem('d3v-lang', 'th');   // jsdom reports en-US; the page's Thai strings are what the checks read
@@ -80,7 +88,7 @@ const has = (c) => calls.some((x) => x.startsWith(c));
 
 for (const src of modules) w.eval(src);
 await sleep(200);
-check('shell มีเมนู 3 อัน', d.querySelectorAll('#menu [data-route]').length === 3);
+check('shell มีเมนู 4 อัน', d.querySelectorAll('#menu [data-route]').length === 4);
 check('เมนูแรก (Stacks) ถูก mount และ active', d.querySelector('#view').classList.contains('m-stacks') && d.querySelector('[data-route="stacks"]').classList.contains('on'));
 check('title เป็นชื่อโปรแกรม พร้อม badge สถานะนำหน้า', d.title === '1/2 up · สแต็ก · D3v', d.title);
 check('favicon เป็นจุดสีตามสถานะ (เขียว: มีตัวรันและไม่มีตัวตาย)', decodeURIComponent(d.querySelector('link[rel="icon"]')?.href || '').includes('#1F9D62'));
@@ -388,6 +396,77 @@ check('ออกจากหน้าทรัพยากรแล้วปร�
 check('deep link #/stacks/beta → กลับมาที่ Stacks และเลือก beta', d.querySelector('#view').classList.contains('m-stacks') && d.querySelector('#main h1')?.textContent.includes('beta'));
 click(d.querySelector('#theme'));
 check('สลับธีม stamp data-theme', ['dark', 'light'].includes(d.documentElement.dataset.theme));
+
+// Chat: the page is a rendering of the event stream, and the only thing that
+// waits for a person is a permission request.
+calls.length = 0; w.location.hash = '#/chat'; await sleep(200);
+check('สลับไปเมนูแชท → mount พร้อมรายการ stack', d.querySelector('#view').classList.contains('m-chat') && d.querySelectorAll('.m-chat [data-select]').length === 2);
+check('เปิด stream ของ stack ที่เลือก', has('SSE /api/chatstream/alpha'), calls.join(', '));
+check('หัวเรื่องบอกโฟลเดอร์ที่จะคุยด้วย (ย่อ ~ ให้)', d.querySelector('.ch-head .path')?.textContent.includes('~/a'), d.querySelector('.ch-head .path')?.textContent);
+check('มีตัวเลือกสิทธิ์ และไม่มีตัวเลือกปิดการตรวจสอบทั้งหมด', (() => {
+  const o = [...d.querySelectorAll('#ch-mode option')].map((e) => e.value);
+  return o.length === 4 && o.includes('manual') && !o.includes('bypassPermissions');
+})(), [...d.querySelectorAll('#ch-mode option')].map((e) => e.value).join(','));
+
+const chatEs = w.__sse.find((e) => e.url.startsWith('/api/chatstream/alpha'));
+let chatSeq = 0;
+const feedChat = (ev) => chatEs.onmessage({ data: JSON.stringify({ seq: ++chatSeq, ev }) });
+
+calls.length = 0;
+d.querySelector('#ch-in').value = 'ทำอะไรได้บ้าง';
+d.querySelector('#ch-form').dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
+await sleep(80);
+check('ส่งข้อความ → POST /api/chat/alpha', has('POST /api/chat/alpha') && w.__lastBody?.text === 'ทำอะไรได้บ้าง', JSON.stringify(w.__lastBody));
+check('ส่งแล้วช่องพิมพ์ว่าง และปุ่มส่งถูกปิดระหว่างรอ', d.querySelector('#ch-in').value === '' && d.querySelector('#ch-send').disabled);
+feedChat({ type: 'nk', event: 'ask', text: 'ทำอะไรได้บ้าง' });
+check('ข้อความของเราขึ้นในบทสนทนา', d.querySelector('.msg.me')?.textContent.includes('ทำอะไรได้บ้าง'));
+
+feedChat({ type: 'assistant', message: { content: [
+  { type: 'thinking', thinking: 'คิดอยู่' },
+  { type: 'text', text: 'ได้ครับ **นี่คือ** `code` และ\n```sh\nls -la\n```' }] } });
+check('คำตอบขึ้นเป็นข้อความ พร้อม markdown ขั้นพื้นฐาน', (() => {
+  const m = d.querySelector('.msg.claude');
+  return !!m && !!m.querySelector('b') && !!m.querySelector('code') && m.querySelector('pre.code')?.textContent.includes('ls -la');
+})(), d.querySelector('.msg.claude')?.innerHTML.slice(0, 160));
+check('ส่วนที่คิดถูกพับไว้ ไม่เกะกะ', d.querySelector('.fold.think details')?.open === false);
+
+feedChat({ type: 'assistant', message: { content: [
+  { type: 'tool_use', id: 'tu-1', name: 'Bash', input: { command: 'make test' } }] } });
+check('การเรียกเครื่องมือขึ้นเป็นการ์ดพับ พร้อมสรุปว่าจะทำอะไร', (() => {
+  const c = d.querySelector('[data-tool="tu-1"]');
+  return !!c && c.querySelector('.tname').textContent === 'Bash' && c.querySelector('.tsum').textContent.includes('make test');
+})());
+feedChat({ type: 'user', message: { content: [
+  { type: 'tool_result', tool_use_id: 'tu-1', content: 'ok 12 tests' }] } });
+check('ผลลัพธ์ของเครื่องมือไปอยู่ในการ์ดเดียวกัน ไม่แยกฟอง', d.querySelector('[data-tool="tu-1"] .tres')?.textContent.includes('ok 12 tests') && d.querySelectorAll('.fold.tool').length === 1);
+
+// The permission card: nothing is approved unless somebody presses Allow.
+feedChat({ type: 'control_request', request_id: 'rq-1', request: {
+  subtype: 'can_use_tool', tool_name: 'Write', display_name: 'Write',
+  input: { file_path: '/home/u/a/x.txt', content: 'hi' }, description: 'x.txt' } });
+const perm = d.querySelector('[data-perm="rq-1"]');
+check('คำขออนุญาตขึ้นเป็นการ์ด พร้อมปุ่มอนุญาต/ไม่อนุญาต', !!perm && !!perm.querySelector('[data-allow]') && !!perm.querySelector('[data-deny]'));
+check('การ์ดบอกว่าจะทำอะไรกับไฟล์ไหน', perm.textContent.includes('x.txt') && perm.querySelector('pre.code').textContent.includes('/home/u/a/x.txt'));
+calls.length = 0; click(perm.querySelector('[data-deny]')); await sleep(80);
+check('กดไม่อนุญาต → POST /api/chatperm พร้อม allow:false', has('POST /api/chatperm/alpha') && w.__lastBody?.allow === false && w.__lastBody?.id === 'rq-1', JSON.stringify(w.__lastBody));
+feedChat({ type: 'nk', event: 'answered', request_id: 'rq-1', allow: false });
+check('ตอบแล้วการ์ดปิดตัวเอง ไม่ให้กดซ้ำ', perm.classList.contains('done') && perm.classList.contains('no') && !perm.querySelector('[data-allow]'));
+
+feedChat({ type: 'control_request', request_id: 'rq-2', request: {
+  subtype: 'can_use_tool', tool_name: 'Bash', display_name: 'Bash', input: { command: 'rm -rf build' } } });
+calls.length = 0; click(d.querySelector('[data-perm="rq-2"] [data-allow]')); await sleep(80);
+check('กดอนุญาต → POST พร้อม allow:true', w.__lastBody?.allow === true && w.__lastBody?.id === 'rq-2', JSON.stringify(w.__lastBody));
+
+// Assistant text is data, never markup.
+feedChat({ type: 'assistant', message: { content: [{ type: 'text', text: '<img src=x onerror="window.__xss=1">' }] } });
+check('ข้อความจาก Claude ถูก escape (ไม่กลายเป็น HTML)', w.__xss === undefined && !d.querySelector('.ch-log img'), String(w.__xss));
+
+feedChat({ type: 'result', subtype: 'success', duration_api_ms: 4200, total_cost_usd: 0.0123, usage: { output_tokens: 1500 } });
+check('จบรอบ → ปุ่มส่งกลับมาใช้ได้ และบอกเวลา/โทเคน/ราคา', !d.querySelector('#ch-send').disabled && d.querySelector('#ch-cost').textContent === '$0.0123' && [...d.querySelectorAll('.ch-log .note')].some((e) => e.textContent.includes('4.2s') && e.textContent.includes('1.5k')));
+feedChat({ type: 'nk', event: 'exited', code: 0 });
+check('session ปิด → บอกว่าพิมพ์ต่อได้', [...d.querySelectorAll('.ch-log .note')].some((e) => e.textContent.includes('พิมพ์ต่อ')));
+w.location.hash = '#/stacks/beta'; await sleep(200);
+check('ออกจากแชทแล้ว stream ถูกปิด', chatEs.closed === true);
 
 // Command palette: Ctrl-K, type what to do, Enter — each item names its nk command.
 d.body.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true, cancelable: true }));

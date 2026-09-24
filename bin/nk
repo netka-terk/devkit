@@ -479,6 +479,30 @@ cmd_secret() {
   esac
 }
 
+# =================================================================== chat ====
+
+# cmd_chat <stack> [ข้อความ] — the conversation the console holds for a stack,
+# from a terminal. The id is nk's, so this and the web page are the same
+# conversation: with no message it opens claude in the stack's folder, with one
+# it asks and prints the answer.
+cmd_chat() {
+  [ $# -ge 1 ] || die "ใช้: nk chat <stack> [ข้อความ]"
+  local name=$1; shift
+  nk_load "$name"
+  command -v python3 >/dev/null || die "ต้องมี python3 ก่อน"
+  local bin sid started
+  bin=$(python3 "$NK_ROOT/lib/chat.py" --which) ||
+    die "ไม่พบคำสั่ง claude — ตั้ง NK_CLAUDE_BIN ให้ชี้ไปที่ไฟล์ claude"
+  read -r sid started < <(python3 "$NK_ROOT/lib/chat.py" --id "$NK_NAME")
+  [ -n "$sid" ] || die "สร้าง session ไม่สำเร็จ"
+  python3 "$NK_ROOT/lib/chat.py" --started "$NK_NAME"
+  local sess=(--session-id "$sid")
+  [ "$started" = 1 ] && sess=(--resume "$sid")
+  cd "$NK_DIR" || die "เข้า $NK_DIR ไม่ได้"
+  [ $# -eq 0 ] && exec "$bin" "${sess[@]}"
+  exec "$bin" -p "${sess[@]}" "$*"
+}
+
 # ================================================================== stats ====
 
 # cmd_stats [--json] — what the machine, and each running stack, is using.
@@ -592,6 +616,7 @@ ${C_B}nk${C_0} — dev stack runner (ใช้ได้กับทุกโป�
   ${C_B}nk kill <port>...${C_0}      เคลียร์ port ตรงๆ
   ${C_B}nk ports <stack>${C_0}       port ที่ stack ที่รันอยู่ listen จริง (ตรวจจาก process ใน pane)
   ${C_B}nk stats [--json]${C_0}      CPU/RAM ของเครื่อง และของแต่ละ stack ที่รันอยู่
+  ${C_B}nk chat <stack> [ข้อความ]${C_0}  คุยกับ Claude ในโฟลเดอร์ของ stack (ห้องเดียวกับในหน้าเว็บ)
   ${C_B}nk list [-n]${C_0}           stack ทั้งหมด
   ${C_B}nk init [name]${C_0}         สร้าง stack ให้โฟลเดอร์ปัจจุบัน
   ${C_B}nk rename <เดิม> <ใหม่>${C_0}  เปลี่ยนชื่อ stack (ต้องหยุดอยู่)
@@ -633,6 +658,7 @@ case ${1:-help} in
   show)     shift; cmd_show "$@" ;;
   ports)    shift; cmd_ports "$@" ;;
   stats)    shift; cmd_stats "$@" ;;
+  chat)     shift; cmd_chat "$@" ;;
   rename)   shift; cmd_rename "$@" ;;
   send)     shift; cmd_send "$@" ;;
   secret)   shift; cmd_secret "$@" ;;

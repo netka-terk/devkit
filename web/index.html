@@ -567,12 +567,80 @@
   tr.pf-pane td { color: var(--muted); border-bottom-color: transparent; }
   tr.pf-pane td:first-child { padding-left: 26px; }
 
+  /* --------------------------------------------------------------- m-chat */
+  .m-chat .shell { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--side-w, 264px) 6px 1fr; }
+  .m-chat .main { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .ch-head { display: flex; align-items: flex-start; gap: 16px; padding: 14px 24px 12px; border-bottom: 1px solid var(--line); flex: none; }
+  .ch-head h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+  .ch-tools { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .ch-mode { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .ch-mode .in { width: auto; height: 30px; padding: 0 8px; font-size: 12.5px; }
+  .ch-cost { font-size: 12.5px; color: var(--muted); font-family: var(--mono); }
+
+  .ch-log { flex: 1; min-height: 0; overflow: auto; padding: 18px 24px 10px; display: flex; flex-direction: column; gap: 10px; }
+  .ch-log > * { max-width: 800px; }
+
+  .msg { border-radius: 10px; padding: 10px 14px; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; }
+  .msg.me { background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); align-self: flex-end; }
+  .msg.claude { background: var(--surface); border: 1px solid var(--line); }
+  .msg b { font-weight: 600; }
+  .msg a { color: var(--accent); }
+  .msg code, .fold code { font-family: var(--mono); font-size: .9em; background: var(--sunken); padding: 1px 4px; border-radius: 4px; }
+  pre.code {
+    margin: 8px 0 0; padding: 10px 12px; background: var(--term-bg); color: var(--term-fg);
+    border-radius: 8px; font: 12px/1.55 var(--mono); white-space: pre-wrap;
+    overflow-wrap: anywhere; max-height: 320px; overflow: auto;
+  }
+  .msg pre.code { margin: 8px 0; }
+
+  /* Tool calls and thinking are folded by default: they are how the answer was
+     reached, and they are there when that is the question. */
+  .fold { font-size: 12.5px; }
+  .fold summary { cursor: pointer; color: var(--muted); display: flex; gap: 8px; align-items: baseline; padding: 4px 2px; border-radius: 6px; list-style: none; }
+  .fold summary::-webkit-details-marker { display: none; }
+  .fold summary::before { content: '›'; color: var(--faint); transition: transform var(--fast) var(--ease); display: inline-block; }
+  .fold details[open] summary::before { transform: rotate(90deg); }
+  .fold summary:hover { color: var(--fg); }
+  .fold .tname { font-family: var(--mono); font-weight: 500; color: var(--fg-2); flex: none; }
+  .fold .tsum { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fold.failed .tname { color: var(--bad); }
+  .fold.think summary { font-style: italic; }
+  .fold.think div { color: var(--muted); white-space: pre-wrap; padding: 6px 2px; line-height: 1.6; }
+  .tres-h { margin-top: 10px; color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+
+  .ch-log .note { color: var(--faint); font-size: 12px; font-family: var(--mono); }
+  .ch-log .note.bad { color: var(--bad); }
+
+  /* The one thing on the page that waits for a person. */
+  .perm { border: 1px solid var(--warn); background: var(--warn-soft); border-radius: 10px; padding: 12px 14px; }
+  .perm-h { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13.5px; color: var(--warn); }
+  .perm-h svg { width: 15px; height: 15px; flex: none; }
+  .perm-sum { font-family: var(--mono); font-size: 12.5px; margin: 7px 0 4px; overflow-wrap: anywhere; }
+  .perm details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  .perm-act { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 10px; }
+  .perm.done { border-color: var(--line); background: var(--raised); }
+  .perm.done .perm-h { color: var(--muted); }
+  .perm-said { font-size: 12.5px; color: var(--muted); }
+  .perm.done.ok .perm-said { color: var(--good); }
+  .perm.done.no .perm-said { color: var(--bad); }
+
+  .ch-compose { flex: none; display: flex; gap: 8px; align-items: flex-end; padding: 12px 24px 16px; border-top: 1px solid var(--line); background: var(--surface); }
+  .ch-compose textarea {
+    flex: 1; resize: none; min-height: 38px; max-height: 220px; padding: 9px 12px;
+    border-radius: var(--r); border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+    font: 14px/1.5 var(--sans);
+  }
+  .ch-compose textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+  .ch-compose .btn { height: 38px; }
+  .ch-compose .btn svg { width: 15px; height: 15px; }
+
   @media (max-width: 760px) {
     .menu a span:not(.k) { display: none; }
     .pal-btn span { display: none; }
     .menu a { padding: 0 10px; }
-    .m-stacks .shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-    .m-stacks #side-gutter { display: none; }
+    .m-stacks .shell, .m-chat .shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    .m-stacks #side-gutter, .m-chat #side-gutter { display: none; }
+    .ch-head, .ch-log, .ch-compose { padding-left: 16px; padding-right: 16px; }
     .drawer { width: 100%; }
     .main { overflow: auto; }
     .board { margin: 0 16px 16px; flex: none; display: flex; flex-direction: column; gap: 12px; }
@@ -633,6 +701,7 @@ window.D3v = (() => {
     'menu.stacks': ['สแต็ก', 'Stacks'],
     'menu.ports': ['พอร์ต', 'Ports'],
     'menu.perf': ['ทรัพยากร', 'Performance'],
+    'menu.chat': ['คุยกับ Claude', 'Chat'],
     'chrome.theme': ['สลับธีม', 'Toggle theme'],
     'chrome.refresh': ['รีเฟรช', 'Refresh'],
     'chrome.lang': ['เปลี่ยนภาษา', 'Switch language'],
@@ -771,6 +840,38 @@ window.D3v = (() => {
     'pf.wait': ['กำลังวัด…', 'measuring…'],
     'pf.ago': ['{s} วิที่แล้ว', '{s}s ago'], 'pf.nowish': ['ล่าสุด', 'latest'],
     'pf.load.fail': ['อ่านค่าทรัพยากรไม่ได้', 'Could not read the machine stats'],
+
+    'ch.foot': ['แต่ละ stack มีห้องคุยของตัวเอง คุยในโฟลเดอร์ของ stack นั้น',
+                'One conversation per stack, held in that stack\'s folder'],
+    'ch.pick': ['เลือก stack ที่จะคุยด้วยจากด้านซ้าย', 'Pick a stack to talk about'],
+    'ch.ph': ['พิมพ์ถาม Claude… (Enter ส่ง · Shift+Enter ขึ้นบรรทัดใหม่)',
+              'Ask Claude… (Enter to send · Shift+Enter for a new line)'],
+    'ch.send': ['ส่ง', 'Send'], 'ch.stop': ['หยุด', 'Stop'],
+    'ch.mode': ['สิทธิ์', 'Permissions'],
+    'ch.mode.manual': ['ถามทุกครั้ง', 'Ask every time'],
+    'ch.mode.acceptEdits': ['แก้ไฟล์ได้เลย', 'Edits without asking'],
+    'ch.mode.auto': ['ให้ตัดสินเอง', 'Decide automatically'],
+    'ch.mode.plan': ['วางแผนอย่างเดียว', 'Plan only'],
+    'ch.mode.set': ['เปลี่ยนเป็น "{mode}" แล้ว — เริ่ม session ใหม่ บทสนทนาเดิมยังอยู่',
+                    'Now "{mode}" — the session restarted, the conversation is kept'],
+    'ch.mode.fail': ['เปลี่ยนสิทธิ์ไม่สำเร็จ', 'Could not change permissions'],
+    'ch.thinking': ['กำลังคิด', 'Thinking'],
+    'ch.tool.out': ['ผลลัพธ์', 'Result'], 'ch.tool.err': ['ผิดพลาด', 'Error'],
+    'ch.perm': ['ขออนุญาตใช้ {tool}', 'Permission to use {tool}'],
+    'ch.perm.detail': ['ดูรายละเอียดที่จะทำ', 'See exactly what it would do'],
+    'ch.allow': ['อนุญาต', 'Allow'], 'ch.deny': ['ไม่อนุญาต', 'Deny'],
+    'ch.allowed': ['อนุญาตแล้ว', 'Allowed'], 'ch.denied': ['ไม่อนุญาต', 'Denied'],
+    'ch.perm.fail': ['ตอบคำขอไม่สำเร็จ', 'Could not answer the request'],
+    'ch.started': ['เริ่มคุยที่ {dir} · สิทธิ์: {mode}', 'Talking in {dir} · permissions: {mode}'],
+    'ch.exited': ['session ปิดแล้ว — พิมพ์ต่อได้เลย เดี๋ยวเปิดใหม่ให้',
+                  'The session ended — type again and it starts back up'],
+    'ch.failed': ['จบไม่สำเร็จ ({why})', 'Ended with {why}'],
+    'ch.tokens': ['{n} token', '{n} tokens'],
+    'ch.noclaude': ['ไม่พบคำสั่ง claude บนเครื่อง — ตั้ง NK_CLAUDE_BIN ให้ชี้ไปที่ไฟล์',
+                    'No claude binary found — point NK_CLAUDE_BIN at one'],
+    'ch.state.fail': ['อ่านสถานะห้องคุยไม่ได้', 'Could not read the conversation'],
+    'ch.send.fail': ['ส่งข้อความไม่สำเร็จ', 'Could not send that'],
+    'ch.stop.fail': ['หยุดไม่สำเร็จ', 'Could not stop it'],
   };
   let lang = 'th';
   try { lang = localStorage.getItem('d3v-lang') || ((navigator.language || '').toLowerCase().startsWith('th') ? 'th' : 'en'); } catch {}
@@ -819,6 +920,8 @@ window.D3v = (() => {
     grid: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg>',
     stack: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 5.5L8 2.5l5.5 3L8 8.5z"/><path d="M2.5 8.5L8 11.5l5.5-3M2.5 11.5L8 14.5l5.5-3"/></svg>',
     port: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="4.5" width="11" height="7" rx="1.5"/><path d="M5.5 7.5v1M8 7.5v1M10.5 7.5v1"/></svg>',
+    chat: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M13.5 9.5a2 2 0 0 1-2 2H6l-3.5 2.5v-2.5a2 2 0 0 1-.5-1.3V4.5a2 2 0 0 1 2-2h7.5a2 2 0 0 1 2 2z"/></svg>',
+    shield: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 1.8l5 1.8v4.1c0 3-2.1 5.2-5 6.5-2.9-1.3-5-3.5-5-6.5V3.6z"/></svg>',
     gauge: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.2 11.8a6.2 6.2 0 1 1 11.6 0"/><path d="M8 11.3L10.9 6.9"/></svg>',
   };
 
@@ -1028,4 +1131,5 @@ window.D3v = (() => {
 <script src="modules/stacks.js"></script>
 <script src="modules/ports.js"></script>
 <script src="modules/perf.js"></script>
+<script src="modules/chat.js"></script>
 </html>
