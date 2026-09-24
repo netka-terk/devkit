@@ -207,6 +207,10 @@ class Session:
             req = obj.get("request") or {}
             if req.get("subtype") == "can_use_tool":
                 self.pending[obj.get("request_id")] = req
+        elif ty == "rate_limit_event":
+            info = obj.get("rate_limit_info")
+            if isinstance(info, dict):
+                _limits["info"], _limits["at"] = info, time.time()
         elif ty == "result":
             self.busy = False
             if isinstance(obj.get("total_cost_usd"), (int, float)):
@@ -297,6 +301,18 @@ class Session:
         with self.lock:
             if q in self.waiters:
                 self.waiters.remove(q)
+
+
+# How much of the account's allowance is gone. It is an account fact rather
+# than a stack one, so the newest reading wins whichever conversation it came
+# from. It rides along with every turn, which is the only reason this is here:
+# there is no command that reports it, and asking for one would mean starting a
+# turn to find out what a turn costs.
+_limits = {"at": 0.0, "info": None}
+
+
+def limits():
+    return dict(_limits)
 
 
 _sessions = {}

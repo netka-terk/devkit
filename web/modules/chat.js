@@ -113,6 +113,7 @@
     if (ty === 'system' && ev.subtype === 'init') return onInit(ev);
     if (ty === 'assistant') return onAssistant(ev);
     if (ty === 'user') return onToolResult(ev);
+    if (ty === 'rate_limit_event') return D3v.setUsage({ at: Date.now() / 1000, info: ev.rate_limit_info });
     if (ty === 'control_request') return onPermission(ev);
     if (ty === 'result') return onResult(ev);
   }

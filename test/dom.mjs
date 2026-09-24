@@ -50,7 +50,8 @@ const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true
     w.fetch = async (url, opts = {}) => {
       calls.push(`${opts.method || 'GET'} ${url}`);
       if (opts.body) w.__lastBody = JSON.parse(opts.body);
-      const body = url.startsWith('/api/chat/') && (opts.method || 'GET') === 'GET'
+      const body = url === '/api/usage' ? { at: 0, info: null }
+        : url.startsWith('/api/chat/') && (opts.method || 'GET') === 'GET'
           ? { stack: 'alpha', cwd: '/home/u/a', mode: 'manual', model: '', running: false, busy: false,
               session: 'sid-1', cost: 0, seq: 0, error: null, pending: [],
               claude: true, modes: ['manual', 'acceptEdits', 'auto', 'plan'],
@@ -464,6 +465,29 @@ feedChat({ type: 'control_request', request_id: 'rq-2', request: {
   subtype: 'can_use_tool', tool_name: 'Bash', display_name: 'Bash', input: { command: 'rm -rf build' } } });
 calls.length = 0; click(d.querySelector('[data-perm="rq-2"] [data-allow]')); await sleep(80);
 check('กดอนุญาต → POST พร้อม allow:true', w.__lastBody?.allow === true && w.__lastBody?.id === 'rq-2', JSON.stringify(w.__lastBody));
+
+// How much of the allowance is gone rides along with a turn — there is no
+// command that reports it — so the top bar shows the last reading, and shows
+// nothing at all rather than a stale guess before one arrives.
+check('ยังไม่มีข้อมูลโควตา → ไม่แสดงอะไรเลย', d.querySelector('#usage').hidden);
+feedChat({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed',
+  unifiedWindows: { five_hour: { utilization: 0.13, resetsAt: 1790231400 },
+                    seven_day: { utilization: 0.82, resetsAt: 1790434800 } } } });
+check('ได้ข้อมูลจากสตรีม → โควตาขึ้นบนแถบบน', !d.querySelector('#usage').hidden);
+check('รอบ 5 ชม. 13% แถบปกติ', (() => {
+  const w = d.querySelector('[data-w="five_hour"]');
+  return w.querySelector('.u-n').textContent === '13%' && parseFloat(w.querySelector('.meter i').style.width) === 13
+    && w.querySelector('.meter').className === 'meter';
+})(), d.querySelector('[data-w="five_hour"]')?.textContent);
+check('รอบ 7 วัน 82% → แถบเปลี่ยนเป็นสีเตือน', (() => {
+  const w = d.querySelector('[data-w="seven_day"]');
+  return w.querySelector('.u-n').textContent === '82%' && w.querySelector('.meter').classList.contains('warn');
+})(), d.querySelector('[data-w="seven_day"] .meter')?.className);
+check('hover บอกเวลารีเซ็ตและอายุของข้อมูล', /รีเซ็ต/.test(d.querySelector('[data-w="five_hour"]').title), d.querySelector('[data-w="five_hour"]').title);
+feedChat({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected',
+  unifiedWindows: { five_hour: { utilization: 1, resetsAt: 1790231400 } } } });
+check('ถึงขีดจำกัด → แถบเป็นสีแดงและบอกว่าเต็ม', d.querySelector('[data-w="five_hour"] .meter').classList.contains('bad') && d.querySelector('[data-w="five_hour"]').title.includes('ถึงขีดจำกัด'));
+check('รอบที่ไม่มีข้อมูลถูกซ่อน ไม่ค้างค่าเดิม', d.querySelector('[data-w="seven_day"]').hidden);
 
 // Changing the model or the permissions restarts the session; the conversation
 // is kept by its id, which is the only reason that is safe.

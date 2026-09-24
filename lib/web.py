@@ -239,6 +239,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.chat_stream(s, since)
             return
 
+        if path == "/api/usage":
+            return self.send_json(200, chat.limits())
+
         if path == "/api/browse":
             q = parse_qs(urlparse(self.path).query)
             return self.send_json(200, browse(q.get("path", [str(Path.home())])[0]))

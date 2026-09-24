@@ -83,6 +83,13 @@ Chat in detail:
   thinking are folded away with a one-line summary and open on click; a tool's
   output lands inside its own card rather than as another bubble. Each turn ends
   with how long it took, the tokens, and what the conversation has cost.
+- **What is left of the allowance**, in the top bar on every page: the 5-hour
+  and 7-day windows as a meter each with the percentage beside it, amber past
+  75%, red at the limit, and the reset time on hover. The figure rides along
+  with every turn and there is no command that reports it, so asking for one
+  would mean spending a turn to find out what a turn costs. The bar shows the
+  last reading and says how old it is rather than pretending to be live, and
+  shows nothing at all until a conversation has had a turn.
 - **It reads the stream, it does not own state.** The page is a rendering of the
   event stream, so a second tab shows the same conversation, and a reload picks
   it up where it was.
