@@ -12,6 +12,8 @@ The session id is ours: one UUID per stack, kept in ~/.config/nk/chat, so the
 conversation is the same one tomorrow and `claude --resume <id>` in a terminal
 opens exactly what the page was showing.
 """
+import base64
+import binascii
 import json
 import os
 import queue
@@ -20,6 +22,15 @@ import threading
 import time
 import uuid
 from pathlib import Path
+
+# Images ride in as base64 and are written to disk at once. Keeping them in the
+# event log instead would put megabytes into a backlog that every viewer is
+# handed on connect; a file plus an id is a few bytes.
+IMG_DIR = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "nk" / "chatimg"
+IMG_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp"}
+IMG_MAX = 5 * 1024 * 1024        # what the API takes for one image
+IMG_PER_TURN = 6
+IMG_KEEP = 200                   # per stack, newest first
 
 HOME = Path(os.environ.get("NK_HOME") or (
     Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "nk"))
@@ -37,6 +48,40 @@ MODES = ("manual", "acceptEdits", "auto", "plan")
 # machine the configured default carries the 1M context window and the bare
 # alias does not.
 MODELS = ("", "opus", "sonnet", "haiku", "fable")
+
+
+def save_image(stack, media_type, b64):
+    """Write one pasted image and return its id, or raise ValueError."""
+    ext = IMG_TYPES.get(media_type)
+    if not ext:
+        raise ValueError(f"ชนิดภาพที่ไม่รองรับ: {media_type}")
+    try:
+        raw = base64.b64decode(b64, validate=True)
+    except (ValueError, binascii.Error):
+        raise ValueError("ข้อมูลภาพไม่ถูกต้อง")
+    if not raw or len(raw) > IMG_MAX:
+        raise ValueError(f"ภาพใหญ่เกิน {IMG_MAX // (1024 * 1024)}MB")
+    d = IMG_DIR / stack
+    d.mkdir(parents=True, exist_ok=True)
+    ident = uuid.uuid4().hex
+    (d / f"{ident}.{ext}").write_bytes(raw)
+    # Bounded, oldest first: a conversation that runs for months should not
+    # quietly fill the disk with screenshots.
+    olds = sorted(d.iterdir(), key=lambda f: f.stat().st_mtime, reverse=True)[IMG_KEEP:]
+    for f in olds:
+        f.unlink(missing_ok=True)
+    return ident
+
+
+def image_path(stack, ident):
+    """The file for an image id, or None. The id is checked, not trusted."""
+    if not ident or len(ident) != 32 or any(c not in "0123456789abcdef" for c in ident):
+        return None
+    for ext in set(IMG_TYPES.values()):
+        f = IMG_DIR / stack / f"{ident}.{ext}"
+        if f.is_file():
+            return f, next(m for m, e in IMG_TYPES.items() if e == ext)
+    return None
 
 
 def load_state(name):
@@ -218,17 +263,34 @@ class Session:
         self._emit(obj)
 
     # -------------------------------------------------------------- turns --
-    def ask(self, text):
+    def ask(self, text, images=()):
         ok, msg = self.start()
         if not ok:
             return False, msg
         if self.busy:
             return False, "กำลังตอบอยู่ — รอให้จบก่อน หรือกดหยุด"
+
+        # A turn with pictures is a list of content blocks; a plain one stays a
+        # plain string, which is what every existing conversation contains.
+        saved, blocks = [], ([{"type": "text", "text": text}] if text else [])
+        for im in list(images)[:IMG_PER_TURN]:
+            try:
+                ident = save_image(self.name, im.get("media_type", ""), im.get("data", ""))
+            except ValueError as e:
+                return False, str(e)
+            saved.append({"id": ident, "media_type": im["media_type"], "name": im.get("name", "")})
+            blocks.append({"type": "image", "source": {
+                "type": "base64", "media_type": im["media_type"], "data": im["data"]}})
+        if not blocks:
+            return False, "ไม่มีอะไรจะส่ง"
+        content = blocks if saved else text
+
         # Echoed back so every viewer sees the turn, including the tab that did
-        # not send it.
-        self._emit({"type": "nk", "event": "ask", "text": text, "at": time.time()})
+        # not send it — by id, so the backlog stays small.
+        self._emit({"type": "nk", "event": "ask", "text": text,
+                    "images": saved, "at": time.time()})
         self.busy = True
-        if not self._write({"type": "user", "message": {"role": "user", "content": text}}):
+        if not self._write({"type": "user", "message": {"role": "user", "content": content}}):
             self.busy = False
             return False, "ส่งข้อความไม่สำเร็จ — session ปิดไปแล้ว"
         return True, ""

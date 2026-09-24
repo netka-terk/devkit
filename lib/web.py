@@ -239,6 +239,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.chat_stream(s, since)
             return
 
+        if path.startswith("/api/chatimg/"):
+            parts = path[len("/api/chatimg/"):].split("/")
+            if len(parts) != 2 or not STACK_RE.match(parts[0]):
+                return self.send_json(404, {"error": "not found"})
+            found = chat.image_path(parts[0], parts[1])
+            if not found:
+                return self.send_json(404, {"error": "not found"})
+            f, ctype = found
+            return self.send(200, f.read_bytes(), ctype)
+
         if path == "/api/usage":
             return self.send_json(200, chat.limits())
 
@@ -403,9 +413,12 @@ class Handler(BaseHTTPRequestHandler):
             if body is None:
                 return
             text = str(body.get("text", "")).strip()
-            if not text or len(text) > 100000:
+            images = body.get("images") or []
+            if not isinstance(images, list) or len(images) > chat.IMG_PER_TURN:
+                return self.send_json(400, {"error": "แนบภาพได้ไม่เกิน 6 ภาพต่อครั้ง"})
+            if (not text and not images) or len(text) > 100000:
                 return self.send_json(400, {"error": "ข้อความว่างหรือยาวเกินไป"})
-            ok, msg = s.ask(text)
+            ok, msg = s.ask(text, images)
             return self.send_json(200 if ok else 400, {"ok": True} if ok else {"error": msg})
 
         if path.startswith("/api/chatperm/"):

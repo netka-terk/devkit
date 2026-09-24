@@ -79,6 +79,13 @@ Chat in detail:
   resolved to is printed next to the folder, because an alias does not tell you.
   Changing either restarts the session and keeps the conversation, and the
   choice is remembered, so `nk chat <stack>` opens on the same model too.
+- **Pictures go in too.** Paste a screenshot into the box, drop one on the
+  page, or pick a file: PNG, JPEG, GIF and WebP, up to six a turn. Anything
+  wider than 1568px is scaled down in the browser first, because past that the
+  API gains nothing from the extra pixels. The file is written to
+  `~/.cache/nk/chatimg/<stack>/` and the stream carries only its id, so the
+  backlog every viewer is handed on connect stays a few bytes rather than
+  megabytes; the newest 200 per stack are kept.
 - **What Claude did is there when that is the question.** Tool calls and
   thinking are folded away with a one-line summary and open on click; a tool's
   output lands inside its own card rather than as another bubble. Each turn ends

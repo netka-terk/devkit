@@ -466,6 +466,38 @@ feedChat({ type: 'control_request', request_id: 'rq-2', request: {
 calls.length = 0; click(d.querySelector('[data-perm="rq-2"] [data-allow]')); await sleep(80);
 check('กดอนุญาต → POST พร้อม allow:true', w.__lastBody?.allow === true && w.__lastBody?.id === 'rq-2', JSON.stringify(w.__lastBody));
 
+// Images: pasted, dropped or picked, they queue as thumbnails and go with the
+// next message. The stream carries them back by id, never by value.
+check('มีปุ่มแนบภาพและช่องเลือกไฟล์', !!d.querySelector('#ch-clip') && d.querySelector('#ch-file')?.accept.includes('image/png'));
+check('ยังไม่มีภาพแนบ → แถบรูปซ่อนอยู่', d.querySelector('#ch-shots').hidden);
+const TEAL = 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKklEQVR4nGOQXl9FU8QwasGoBaMWjFowasGoBaMWjFowasGoBaMWDBULAFx/EEzBb9F3AAAAAElFTkSuQmCC';
+const pngFile = new w.File([Uint8Array.from(w.atob(TEAL), (c) => c.charCodeAt(0))], 'teal.png', { type: 'image/png' });
+const pasteEv = new w.Event('paste', { bubbles: true, cancelable: true });
+pasteEv.clipboardData = { files: [pngFile], types: ['Files'] };
+d.querySelector('#ch-in').dispatchEvent(pasteEv);
+await sleep(120);
+check('วางภาพ → ขึ้นเป็นรูปย่อรอส่ง', !d.querySelector('#ch-shots').hidden && d.querySelectorAll('#ch-shots .shot img').length === 1, d.querySelector('#ch-shots')?.innerHTML.slice(0, 80));
+const badFile = new w.File([new Uint8Array([1, 2])], 'a.tif', { type: 'image/tiff' });
+const badPaste = new w.Event('paste', { bubbles: true, cancelable: true });
+badPaste.clipboardData = { files: [badFile], types: ['Files'] };
+d.querySelector('#ch-in').dispatchEvent(badPaste);
+await sleep(120);
+check('ชนิดที่ไม่รองรับถูกปฏิเสธตั้งแต่หน้าเว็บ', d.querySelectorAll('#ch-shots .shot').length === 1);
+calls.length = 0;
+d.querySelector('#ch-in').value = 'อันนี้สีอะไร';
+d.querySelector('#ch-form').dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
+await sleep(120);
+check('ส่งพร้อมภาพ → POST มี images แนบไปด้วย', w.__lastBody?.images?.length === 1 && w.__lastBody.images[0].media_type === 'image/png' && w.__lastBody.images[0].data === TEAL, JSON.stringify(w.__lastBody?.images?.[0] || {}).slice(0, 90));
+check('ส่งแล้วแถบรูปว่างและซ่อนอีกครั้ง', d.querySelector('#ch-shots').hidden);
+feedChat({ type: 'nk', event: 'ask', text: 'อันนี้สีอะไร', images: [{ id: 'abc123', media_type: 'image/png', name: 'teal.png' }] });
+const shown = [...d.querySelectorAll('.msg.me .shot-img')].pop();
+check('ข้อความของเราแสดงภาพ โดยดึงจาก id ไม่ใช่จาก base64 ในสตรีม', shown?.getAttribute('src') === '/api/chatimg/alpha/abc123', shown?.getAttribute('src'));
+// Queued images can be taken off again before sending.
+d.querySelector('#ch-in').dispatchEvent(Object.assign(new w.Event('paste', { bubbles: true, cancelable: true }), { clipboardData: { files: [pngFile], types: ['Files'] } }));
+await sleep(120);
+click(d.querySelector('#ch-shots [data-drop]'));
+check('กด ✕ บนรูปย่อ → เอาออกได้ก่อนส่ง', d.querySelector('#ch-shots').hidden && d.querySelectorAll('#ch-shots .shot').length === 0);
+
 // How much of the allowance is gone rides along with a turn — there is no
 // command that reports it — so the top bar shows the last reading, and shows
 // nothing at all rather than a stale guess before one arrives.
@@ -504,7 +536,7 @@ check('เปลี่ยนสิทธิ์ → POST เดียวกัน
 
 // Assistant text is data, never markup.
 feedChat({ type: 'assistant', message: { content: [{ type: 'text', text: '<img src=x onerror="window.__xss=1">' }] } });
-check('ข้อความจาก Claude ถูก escape (ไม่กลายเป็น HTML)', w.__xss === undefined && !d.querySelector('.ch-log img'), String(w.__xss));
+check('ข้อความจาก Claude ถูก escape (ไม่กลายเป็น HTML)', w.__xss === undefined && !d.querySelector('.msg.claude img') && [...d.querySelectorAll('.msg.claude')].some((e) => e.textContent.includes('onerror')), String(w.__xss));
 
 feedChat({ type: 'result', subtype: 'success', duration_api_ms: 4200, total_cost_usd: 0.0123, usage: { output_tokens: 1500 } });
 check('จบรอบ → ปุ่มส่งกลับมาใช้ได้ และบอกเวลา/โทเคน/ราคา', !d.querySelector('#ch-send').disabled && d.querySelector('#ch-cost').textContent === '$0.0123' && [...d.querySelectorAll('.ch-log .note')].some((e) => e.textContent.includes('4.2s') && e.textContent.includes('1.5k')));

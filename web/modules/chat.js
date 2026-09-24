@@ -12,6 +12,7 @@
   let stacks = [], selected = null, pendingSelect = null;
   let es = null, seq = 0, state = null, streamFor = null;
   const tools = new Map();          // tool_use_id -> its card, so a result lands in it
+  let pending = [];                 // images waiting to go with the next message
 
   const attrEsc = (v) => String(v).replace(/["\\]/g, '\\$&');
   const saved = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -48,8 +49,13 @@
     </div>
     <div class="ch-log" id="ch-log" tabindex="0"></div>
     <form class="ch-compose" id="ch-form">
-      <textarea id="ch-in" rows="1" placeholder="${esc(t('ch.ph'))}" spellcheck="false"></textarea>
-      <button class="btn primary" id="ch-send" type="submit">${t('ch.send')}</button>
+      <div class="ch-shots" id="ch-shots" hidden></div>
+      <div class="ch-row">
+        <button type="button" class="icon-btn" id="ch-clip" title="${esc(t('ch.attach'))}" aria-label="${esc(t('ch.attach'))}">${ICON.clip}</button>
+        <textarea id="ch-in" rows="1" placeholder="${esc(t('ch.ph'))}" spellcheck="false"></textarea>
+        <button class="btn primary" id="ch-send" type="submit">${t('ch.send')}</button>
+      </div>
+      <input type="file" id="ch-file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
     </form>`;
 
   // --------------------------------------------------------- formatting --
@@ -86,6 +92,54 @@
     return keys.length ? `${keys[0]}: ${String(i[keys[0]]).slice(0, 80)}` : '';
   }
 
+  // ------------------------------------------------------------ images --
+  // The API takes an image up to a few megabytes and stops gaining from one
+  // wider than ~1568px, so anything bigger is scaled down here rather than
+  // pushed over the wire to be refused.
+  const IMG_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+  const IMG_EDGE = 1568, IMG_PLAIN = 3.5e6, MAX_SHOTS = 6;
+
+  const toBase64 = (blob) => new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result).slice(String(r.result).indexOf(',') + 1));
+    r.onerror = () => rej(new Error('read failed'));
+    r.readAsDataURL(blob);
+  });
+
+  async function prepare(file) {
+    if (!IMG_TYPES.includes(file.type)) throw new Error(t('ch.img.type'));
+    // A small file of a supported type goes as it is; re-encoding it would
+    // only cost quality. GIFs always do, because a canvas would flatten them.
+    if (file.size <= IMG_PLAIN || file.type === 'image/gif') {
+      return { media_type: file.type, data: await toBase64(file), name: file.name || '' };
+    }
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, IMG_EDGE / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    const url = c.toDataURL('image/jpeg', 0.85);
+    return { media_type: 'image/jpeg', data: url.slice(url.indexOf(',') + 1), name: file.name || '' };
+  }
+
+  async function attachFiles(files) {
+    for (const f of [...files].slice(0, MAX_SHOTS - pending.length)) {
+      try { pending.push(await prepare(f)); }
+      catch (e) { toast(e.message || t('ch.img.fail'), { kind: 'bad' }); }
+    }
+    paintShots();
+  }
+
+  function paintShots() {
+    const box = $('#ch-shots'); if (!box) return;
+    box.hidden = !pending.length;
+    box.innerHTML = pending.map((im, i) => `
+      <span class="shot">
+        <img src="data:${esc(im.media_type)};base64,${im.data}" alt="${esc(im.name || t('ch.img'))}">
+        <button type="button" class="shot-x" data-drop="${i}" aria-label="${esc(t('ed.row.rm'))}">✕</button>
+      </span>`).join('');
+  }
+
   // --------------------------------------------------------------- log --
   const logEl = () => $('#ch-log');
   function atBottom() {
@@ -119,7 +173,14 @@
   }
 
   function onNk(ev) {
-    if (ev.event === 'ask') return add(el('msg me', md(ev.text)));
+    if (ev.event === 'ask') {
+      // The pictures come back by id, not by value: the stream carries the
+      // reference and the browser fetches the file.
+      const shots = (ev.images || []).map((im) =>
+        `<a href="/api/chatimg/${encodeURIComponent(streamFor)}/${encodeURIComponent(im.id)}" target="_blank" rel="noopener">
+          <img class="shot-img" src="/api/chatimg/${encodeURIComponent(streamFor)}/${encodeURIComponent(im.id)}" alt="${esc(im.name || t('ch.img'))}"></a>`).join('');
+      return add(el('msg me', (ev.text ? md(ev.text) : '') + (shots ? `<div class="shots">${shots}</div>` : '')));
+    }
     if (ev.event === 'started') return add(el('note', esc(t('ch.started', { dir: home(ev.cwd), mode: ev.mode }))));
     if (ev.event === 'exited') { setBusy(false); return add(el('note', esc(t('ch.exited')))); }
     if (ev.event === 'answered') {
@@ -216,10 +277,10 @@
     } catch (e) { toast(t('ch.perm.fail'), { detail: e.message, kind: 'bad' }); }
   }
 
-  async function send(text) {
-    if (!text.trim() || !selected) return;
+  async function send(text, images) {
+    if (!selected || (!text.trim() && !images.length)) return;
     try {
-      await api(`/api/chat/${encodeURIComponent(selected)}`, 'POST', { text });
+      await api(`/api/chat/${encodeURIComponent(selected)}`, 'POST', { text, images });
       setBusy(true);
     } catch (e) { toast(t('ch.send.fail'), { detail: e.message, kind: 'bad' }); }
   }
@@ -291,9 +352,31 @@
     form.addEventListener('submit', (ev) => {
       ev.preventDefault();
       const text = box.value;
-      if (!text.trim()) return;
+      if (!text.trim() && !pending.length) return;
+      const images = pending;
+      pending = []; paintShots();
       box.value = ''; grow();
-      send(text);
+      send(text, images);
+    });
+
+    // Three ways in, because a screenshot arrives differently every time:
+    // paste it, drop it on the page, or pick it from the button.
+    $('#ch-clip').onclick = () => $('#ch-file').click();
+    $('#ch-file').onchange = (e) => { attachFiles(e.target.files); e.target.value = ''; };
+    box.addEventListener('paste', (e) => {
+      const files = [...(e.clipboardData?.files || [])];
+      if (files.length) { e.preventDefault(); attachFiles(files); }
+    });
+    for (const kind of ['dragover', 'drop']) {
+      root.addEventListener(kind, (e) => {
+        if (!e.dataTransfer?.types?.includes('Files')) return;
+        e.preventDefault();
+        root.classList.toggle('dropping', kind === 'dragover');
+        if (kind === 'drop') attachFiles(e.dataTransfer.files);
+      });
+    }
+    root.addEventListener('dragleave', (e) => {
+      if (e.relatedTarget === null) root.classList.remove('dropping');
     });
     $('#ch-stop').onclick = async () => {
       try { await api(`/api/chatstop/${encodeURIComponent(selected)}`, 'POST'); setBusy(false); }
@@ -355,6 +438,8 @@
     if (a) return answer(a.dataset.allow, true);
     const d = ev.target.closest('[data-deny]');
     if (d) return answer(d.dataset.deny, false);
+    const drop = ev.target.closest('[data-drop]');
+    if (drop) { pending.splice(+drop.dataset.drop, 1); return paintShots(); }
   }
 
   // ------------------------------------------------------------- module --
@@ -374,7 +459,7 @@
     refresh,
     unmount() {
       if (es) { es.close(); es = null; }
-      streamFor = null; tools.clear(); state = null;
+      streamFor = null; tools.clear(); state = null; pending = [];
       root = null; $ = null;
     },
   });
