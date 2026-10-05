@@ -21,6 +21,8 @@ _nk_complete() {
     -s|--stack)
       stacks=$(nk list -n 2>/dev/null)
       mapfile -t COMPREPLY < <(compgen -W "$stacks" -- "$cur") ;;
+    web)
+      mapfile -t COMPREPLY < <(compgen -W "-r" -- "$cur") ;;
     curl)
       mapfile -t COMPREPLY < <(compgen -W "-s GET POST PUT PATCH DELETE" -- "$cur") ;;
     mk)

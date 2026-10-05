@@ -596,12 +596,60 @@ cmd_rename() {
 
 # ==================================================================== web ====
 
-# cmd_web [port] — serve the D3v console. Loopback only: the endpoints start
-# and stop processes.
+# nk_web_pids <port> — the pids on that port that are a D3v server of ours,
+# told apart from anything else by what they are actually running.
+nk_web_pids() {
+  local pid out=
+  for pid in $(nk_port_pids "$1"); do
+    case $(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null) in
+      *lib/web.py*) out="$out $pid" ;;
+    esac
+  done
+  printf '%s' "${out# }"
+}
+
+# cmd_web [-r] [port] — serve the D3v console. Loopback only: the endpoints
+# start processes, run commands and talk to Claude, and there is no login.
+#
+# A console already on the port used to crash this with a Python traceback
+# about binding — which, for the tool whose whole job is port collisions, was
+# the wrong answer twice over. Now it says so, and -r restarts it, which is
+# what you want after changing the code anyway.
 cmd_web() {
-  local port=${1:-7777}
+  local port= restart=0
+  while [ $# -gt 0 ]; do
+    case $1 in
+      -r|--restart) restart=1; shift ;;
+      -*) die "ไม่รู้จัก option $1 (ใช้: nk web [-r] [port])" ;;
+      *) port=$1; shift ;;
+    esac
+  done
+  port=${port:-7777}
   command -v python3 >/dev/null || die "ต้องมี python3 ก่อน"
   case $port in ''|*[!0-9]*) die "port ต้องเป็นตัวเลข" ;; esac
+
+  local mine; mine=$(nk_web_pids "$port")
+  if [ -n "$mine" ]; then
+    if [ "$restart" = 0 ]; then
+      ok "D3v รันอยู่แล้ว → ${C_B}http://127.0.0.1:$port${C_0}"
+      dim "    โหลดโค้ดใหม่: nk web -r $port"
+      return 0
+    fi
+    info "ปิดตัวเดิม (pid $mine) แล้วเริ่มใหม่"
+    # SIGTERM, so web.py gets to close the chat sessions it started.
+    kill $mine 2>/dev/null
+    local _
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      sleep 0.3
+      [ -n "$(nk_web_pids "$port")" ] || break
+    done
+    [ -n "$(nk_web_pids "$port")" ] && { kill -9 $(nk_web_pids "$port") 2>/dev/null; sleep 0.3; }
+  fi
+
+  # Anything else holding the port is not ours to kill without being asked.
+  local held; held=$(nk_port_pids "$port"); set -- $held
+  [ -n "$held" ] && die "port $port ถูกจับโดย $(nk_pid_name "$1") (pid $1) — เคลียร์ก่อน: nk kill $port"
+
   NK_CWD="$PWD" exec python3 "$NK_ROOT/lib/web.py" "$port"
 }
 
@@ -627,7 +675,7 @@ ${C_B}nk${C_0} — dev stack runner (ใช้ได้กับทุกโป�
   ${C_B}nk send <stack> <pane> --text|--key${C_0}  พิมพ์เข้า pane ที่รันอยู่ (ตอบ prompt)
   ${C_B}nk secret <stack> set|clear${C_0}  รหัส sudo ที่ pane ของ stack จะใช้ตอบเอง
   ${C_B}nk nopass <คำสั่ง>${C_0}      ให้ sudo <คำสั่ง> ไม่ถามรหัส (กฎ sudoers เฉพาะคำสั่งนั้น — ดีกว่าเก็บรหัส)
-  ${C_B}nk web [port]${C_0}          เปิดหน้าเว็บที่ 127.0.0.1:7777 (default)
+  ${C_B}nk web [-r] [port]${C_0}     เปิดหน้าเว็บที่ 127.0.0.1:7777 (-r = ปิดตัวเดิมแล้วเริ่มใหม่)
 
   ${C_B}nk token [stack] [-f]${C_0}      token จาก NK_TOKEN_CMD (cache + mint ใหม่เมื่อใกล้หมดอายุ)
   ${C_B}nk curl [-s stack] [M] <path> [body]${C_0}  ยิง NK_API_BASE พร้อม Bearer token
