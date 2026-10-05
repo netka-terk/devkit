@@ -616,14 +616,23 @@ nk_web_pids() {
 # the wrong answer twice over. Now it says so, and -r restarts it, which is
 # what you want after changing the code anyway.
 cmd_web() {
-  local port= restart=0
+  local port= restart=0 host=127.0.0.1
   while [ $# -gt 0 ]; do
     case $1 in
       -r|--restart) restart=1; shift ;;
-      -*) die "ไม่รู้จัก option $1 (ใช้: nk web [-r] [port])" ;;
+      --host) host=${2:-}; shift 2 ;;
+      -*) die "ไม่รู้จัก option $1 (ใช้: nk web [-r] [--host <ip|auto>] [port])" ;;
       *) port=$1; shift ;;
     esac
   done
+  # WSL hands out a new address on every boot, so "auto" is resolved now rather
+  # than written down. eth0 only: on this setup that reaches the Windows host
+  # and nothing else, whereas 0.0.0.0 would also answer on a VPN interface.
+  if [ "$host" = auto ]; then
+    host=$(ip -4 -o addr show eth0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+    [ -n "$host" ] || die "หา IP ของ eth0 ไม่เจอ — ระบุเองด้วย --host <ip>"
+  fi
+  [ -n "$host" ] || die "--host ต้องตามด้วย ip หรือ auto"
   port=${port:-7777}
   command -v python3 >/dev/null || die "ต้องมี python3 ก่อน"
   case $port in ''|*[!0-9]*) die "port ต้องเป็นตัวเลข" ;; esac
@@ -650,7 +659,12 @@ cmd_web() {
   local held; held=$(nk_port_pids "$port"); set -- $held
   [ -n "$held" ] && die "port $port ถูกจับโดย $(nk_pid_name "$1") (pid $1) — เคลียร์ก่อน: nk kill $port"
 
-  NK_CWD="$PWD" exec python3 "$NK_ROOT/lib/web.py" "$port"
+  if [ "$host" != 127.0.0.1 ] && [ "$host" != localhost ]; then
+    warn "เปิดที่ $host — ไม่ใช่แค่เครื่องนี้แล้ว"
+    dim "    หน้านี้ไม่มีล็อกอิน สั่งรันคำสั่ง เปิด-ปิด process และสั่ง Claude แก้ไฟล์ในโปรเจคได้"
+    dim "    ใช้เท่าที่จำเป็น แล้วกลับมา nk web -r (ไม่ใส่ --host) เมื่อเลิกใช้"
+  fi
+  NK_CWD="$PWD" NK_WEB_HOST="$host" exec python3 "$NK_ROOT/lib/web.py" "$port"
 }
 
 # =================================================================== help ====
@@ -675,7 +689,8 @@ ${C_B}nk${C_0} — dev stack runner (ใช้ได้กับทุกโป�
   ${C_B}nk send <stack> <pane> --text|--key${C_0}  พิมพ์เข้า pane ที่รันอยู่ (ตอบ prompt)
   ${C_B}nk secret <stack> set|clear${C_0}  รหัส sudo ที่ pane ของ stack จะใช้ตอบเอง
   ${C_B}nk nopass <คำสั่ง>${C_0}      ให้ sudo <คำสั่ง> ไม่ถามรหัส (กฎ sudoers เฉพาะคำสั่งนั้น — ดีกว่าเก็บรหัส)
-  ${C_B}nk web [-r] [port]${C_0}     เปิดหน้าเว็บที่ 127.0.0.1:7777 (-r = ปิดตัวเดิมแล้วเริ่มใหม่)
+  ${C_B}nk web [-r] [--host ip|auto] [port]${C_0}
+                         เปิดหน้าเว็บที่ 127.0.0.1:7777 (-r = เริ่มใหม่, --host auto = ให้ Windows เข้าได้)
 
   ${C_B}nk token [stack] [-f]${C_0}      token จาก NK_TOKEN_CMD (cache + mint ใหม่เมื่อใกล้หมดอายุ)
   ${C_B}nk curl [-s stack] [M] <path> [body]${C_0}  ยิง NK_API_BASE พร้อม Bearer token
