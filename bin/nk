@@ -612,15 +612,35 @@ nk_web_pids() {
 # excluded range. Hyper-V reserves blocks of ports at boot, and a WSL service
 # on one of them is unreachable from a Windows browser with no error anywhere:
 # the relay simply cannot bind the Windows side. 7777 landed in 7729-7828 here.
+# nk_wsl_excluded — the ranges, asked of Windows once per run and kept.
+nk_wsl_excluded() {
+  if [ -z "${NK_EXCLUDED+x}" ]; then
+    NK_EXCLUDED=
+    if grep -qi microsoft /proc/version 2>/dev/null && command -v powershell.exe >/dev/null 2>&1; then
+      NK_EXCLUDED=$(timeout 8 powershell.exe -NoProfile -Command \
+        "netsh interface ipv4 show excludedportrange protocol=tcp" 2>/dev/null |
+        tr -d '\r\0' | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ { print $1, $2 }')
+    fi
+  fi
+  printf '%s\n' "$NK_EXCLUDED"
+}
 nk_wsl_port_blocked() {
-  grep -qi microsoft /proc/version 2>/dev/null || return 1
-  command -v powershell.exe >/dev/null 2>&1 || return 1
   local port=$1 s e
   while read -r s e; do
-    case $s in ''|*[!0-9]*) continue ;; esac
-    [ "$s" -le "$port" ] && [ "$port" -le "$e" ] && { NK_BLOCKED_RANGE="$s-$e"; return 0; }
-  done < <(timeout 8 powershell.exe -NoProfile -Command \
-             "netsh interface ipv4 show excludedportrange protocol=tcp" 2>/dev/null | tr -d '\r\0')
+    [ -n "$s" ] && [ "$s" -le "$port" ] && [ "$port" -le "$e" ] && { NK_BLOCKED_RANGE="$s-$e"; return 0; }
+  done < <(nk_wsl_excluded)
+  return 1
+}
+
+# nk_web_free_port — a port Windows will forward and nothing is using: the
+# round, memorable ones first, then downward from where we started.
+nk_web_free_port() {
+  local from=$1 cand
+  for cand in 7700 7000 8000 8080 8800 9000 $(seq $((from - 1)) -1 1024); do
+    nk_wsl_port_blocked "$cand" && continue
+    [ -z "$(nk_port_pids "$cand")" ] || [ -n "$(nk_web_pids "$cand")" ] || continue
+    printf '%s' "$cand"; return 0
+  done
   return 1
 }
 
@@ -632,13 +652,13 @@ nk_wsl_port_blocked() {
 # the wrong answer twice over. Now it says so, and -r restarts it, which is
 # what you want after changing the code anyway.
 cmd_web() {
-  local port= restart=0 host=127.0.0.1
+  local port= restart=0 host=127.0.0.1 explicit=0
   while [ $# -gt 0 ]; do
     case $1 in
       -r|--restart) restart=1; shift ;;
       --host) host=${2:-}; shift 2 ;;
       -*) die "ไม่รู้จัก option $1 (ใช้: nk web [-r] [--host <ip|auto>] [port])" ;;
-      *) port=$1; shift ;;
+      *) port=$1; explicit=1; shift ;;
     esac
   done
   # WSL hands out a new address on every boot, so "auto" is resolved now rather
@@ -655,10 +675,20 @@ cmd_web() {
   command -v python3 >/dev/null || die "ต้องมี python3 ก่อน"
   case $port in ''|*[!0-9]*) die "port ต้องเป็นตัวเลข" ;; esac
 
+  # A port Windows has reserved is one the browser can never reach, so binding
+  # it anyway helps nobody. A port nobody asked for by name is moved to one
+  # that works; a port given on the command line is honoured, with the reason
+  # it will not work said out loud.
   if [ "$host" = 127.0.0.1 ] && nk_wsl_port_blocked "$port"; then
-    warn "Windows สงวนพอร์ตช่วง $NK_BLOCKED_RANGE ไว้ (Hyper-V) — เบราว์เซอร์บน Windows จะเข้า 127.0.0.1:$port ไม่ได้"
-    dim "    ใช้พอร์ตอื่น: nk web <พอร์ต>   แล้วตั้งถาวร: export NK_WEB_PORT=<พอร์ต> ใน ~/.bashrc"
-    dim "    ช่วงที่สงวนเปลี่ยนได้ทุกครั้งที่บูต Windows — ถ้ามันมาโดนอีก คำเตือนนี้จะขึ้นอีก"
+    local range=$NK_BLOCKED_RANGE moved
+    if [ "$explicit" = 0 ] && moved=$(nk_web_free_port "$port"); then
+      warn "Windows สงวนช่วง $range ไว้ (Hyper-V) เบราว์เซอร์เข้า $port ไม่ได้ — ย้ายไปใช้ $moved แทน"
+      dim "    ให้เป็นค่าถาวร: export NK_WEB_PORT=$moved ใน ~/.bashrc"
+      port=$moved
+    else
+      warn "Windows สงวนช่วง $range ไว้ (Hyper-V) — เบราว์เซอร์บน Windows จะเข้า 127.0.0.1:$port ไม่ได้"
+      dim "    ใช้พอร์ตอื่น: nk web 7700   แล้วตั้งถาวร: export NK_WEB_PORT=7700 ใน ~/.bashrc"
+    fi
   fi
 
   local mine; mine=$(nk_web_pids "$port")
