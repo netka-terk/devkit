@@ -608,6 +608,22 @@ nk_web_pids() {
   printf '%s' "${out# }"
 }
 
+# nk_wsl_port_blocked <port> — on WSL, true if Windows has that TCP port in an
+# excluded range. Hyper-V reserves blocks of ports at boot, and a WSL service
+# on one of them is unreachable from a Windows browser with no error anywhere:
+# the relay simply cannot bind the Windows side. 7777 landed in 7729-7828 here.
+nk_wsl_port_blocked() {
+  grep -qi microsoft /proc/version 2>/dev/null || return 1
+  command -v powershell.exe >/dev/null 2>&1 || return 1
+  local port=$1 s e
+  while read -r s e; do
+    case $s in ''|*[!0-9]*) continue ;; esac
+    [ "$s" -le "$port" ] && [ "$port" -le "$e" ] && { NK_BLOCKED_RANGE="$s-$e"; return 0; }
+  done < <(timeout 8 powershell.exe -NoProfile -Command \
+             "netsh interface ipv4 show excludedportrange protocol=tcp" 2>/dev/null | tr -d '\r\0')
+  return 1
+}
+
 # cmd_web [-r] [port] — serve the D3v console. Loopback only: the endpoints
 # start processes, run commands and talk to Claude, and there is no login.
 #
@@ -633,9 +649,17 @@ cmd_web() {
     [ -n "$host" ] || die "หา IP ของ eth0 ไม่เจอ — ระบุเองด้วย --host <ip>"
   fi
   [ -n "$host" ] || die "--host ต้องตามด้วย ip หรือ auto"
-  port=${port:-7777}
+  # NK_WEB_PORT in the environment (or ~/.bashrc) is the standing choice, for a
+  # machine where the usual port is one Windows will not forward.
+  port=${port:-${NK_WEB_PORT:-7777}}
   command -v python3 >/dev/null || die "ต้องมี python3 ก่อน"
   case $port in ''|*[!0-9]*) die "port ต้องเป็นตัวเลข" ;; esac
+
+  if [ "$host" = 127.0.0.1 ] && nk_wsl_port_blocked "$port"; then
+    warn "Windows สงวนพอร์ตช่วง $NK_BLOCKED_RANGE ไว้ (Hyper-V) — เบราว์เซอร์บน Windows จะเข้า 127.0.0.1:$port ไม่ได้"
+    dim "    ใช้พอร์ตอื่น: nk web <พอร์ต>   แล้วตั้งถาวร: export NK_WEB_PORT=<พอร์ต> ใน ~/.bashrc"
+    dim "    ช่วงที่สงวนเปลี่ยนได้ทุกครั้งที่บูต Windows — ถ้ามันมาโดนอีก คำเตือนนี้จะขึ้นอีก"
+  fi
 
   local mine; mine=$(nk_web_pids "$port")
   if [ -n "$mine" ]; then
@@ -690,7 +714,7 @@ ${C_B}nk${C_0} — dev stack runner (ใช้ได้กับทุกโป�
   ${C_B}nk secret <stack> set|clear${C_0}  รหัส sudo ที่ pane ของ stack จะใช้ตอบเอง
   ${C_B}nk nopass <คำสั่ง>${C_0}      ให้ sudo <คำสั่ง> ไม่ถามรหัส (กฎ sudoers เฉพาะคำสั่งนั้น — ดีกว่าเก็บรหัส)
   ${C_B}nk web [-r] [--host ip|auto] [port]${C_0}
-                         เปิดหน้าเว็บที่ 127.0.0.1:7777 (-r = เริ่มใหม่, --host auto = ให้ Windows เข้าได้)
+                         เปิดหน้าเว็บที่ 127.0.0.1:7777 (-r = เริ่มใหม่; พอร์ตเริ่มต้นตั้งด้วย NK_WEB_PORT)
 
   ${C_B}nk token [stack] [-f]${C_0}      token จาก NK_TOKEN_CMD (cache + mint ใหม่เมื่อใกล้หมดอายุ)
   ${C_B}nk curl [-s stack] [M] <path> [body]${C_0}  ยิง NK_API_BASE พร้อม Bearer token

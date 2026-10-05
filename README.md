@@ -228,7 +228,19 @@ Stacks in detail:
   scroll instead.
 
 Loopback only: the endpoints start and stop processes, there is no auth, and it
-must not be exposed. Stacks resolve from the directory `nk web` was started in,
+must not be exposed.
+
+**On WSL2**, a Windows browser reaches a WSL service through WSL's localhost
+relay, and the relay cannot forward a port that Windows has in an excluded
+range — Hyper-V reserves blocks of them at boot, silently. The service answers
+inside WSL and the browser says "refused", with no error anywhere. `nk web`
+checks the Windows excluded ranges on start and says so if the port is in one;
+pick another (`nk web 7700`) and make it stick with `export NK_WEB_PORT=7700`
+in `~/.bashrc`. The reserved blocks move between boots, so the warning can come
+back. `nk web --host auto` binds the WSL interface instead, which the Windows
+host reaches directly — but that is no longer loopback-only, it says so when
+it starts, and it binds eth0 specifically rather than every interface, so a
+VPN interface on the same machine does not get the console too. Stacks resolve from the directory `nk web` was started in,
 so a project's `.nk/` stacks show up.
 
 ## Where stacks live
